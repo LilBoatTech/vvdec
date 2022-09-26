@@ -60,6 +60,84 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 //! \ingroup DecoderLib
 //! \{
+//!
+void DecCu::TaskWaitReferenceReady(CodingStructure &cs, const UnitArea &ctuArea, MotionHist &hist, bool bWait) {
+  const unsigned ctuRsAddr = getCtuAddr(Position(ctuArea.lumaPos().x, ctuArea.lumaPos().y), *cs.pcv);
+  const unsigned ctuXPosInCtus = ctuRsAddr % cs.pcv->widthInCtus;
+  const unsigned tileColIdx = cs.pps->ctuToTileCol(ctuXPosInCtus);
+  const unsigned tileXPosInCtus = cs.pps->getTileColumnBd(tileColIdx);
+  if (ctuXPosInCtus == tileXPosInCtus) {
+    hist.motionLut.resize(0);
+    hist.motionLutIbc.resize(0);
+  }
+  for (auto &currCU : cs.traverseCUs(ctuArea)) {
+    if (!CU::isIntra(currCU)) {
+      xDeriveCUMV(currCU, hist);
+      if (!CU::isIBC(currCU) && bWait) CU::waitForReferencePictureReady(currCU);
+    } else {
+      MotionBuf mb = currCU.getMotionBuf();
+      mb.memset(0);
+    }
+  }
+}
+
+void DecCu::TaskReconAll(CodingStructure &cs, const UnitArea &ctuArea, MotionHist &hist) {
+  const unsigned ctuRsAddr = getCtuAddr(Position(ctuArea.lumaPos().x, ctuArea.lumaPos().y), *cs.pcv);
+  const unsigned ctuXPosInCtus = ctuRsAddr % cs.pcv->widthInCtus;
+  const unsigned tileColIdx = cs.pps->ctuToTileCol(ctuXPosInCtus);
+  const unsigned tileXPosInCtus = cs.pps->getTileColumnBd(tileColIdx);
+
+  if (ctuXPosInCtus == tileXPosInCtus) {
+    hist.motionLut.resize(0);
+    hist.motionLutIbc.resize(0);
+  }
+  for (auto &currCU : cs.traverseCUs(ctuArea)) {
+    currCU.setupPredBuf(m_predBuf);
+    if (!CU::isIntra(currCU)) {
+      xDeriveCUMV(currCU, hist);
+      if (!CU::isIBC(currCU)) CU::waitForReferencePictureReady(currCU);
+    } else {
+      MotionBuf mb = currCU.getMotionBuf();
+      mb.memset(0);
+    }
+    if (currCU.rootCbf()) {
+      reconstructResi(currCU);
+    }
+    if (!CU::isIntra(currCU) && !CU::isIBC(currCU)) {
+      predAndReco(currCU, false);
+    }
+    if (CU::isIntra(currCU) || currCU.ciipFlag() || CU::isIBC(currCU)) {
+      predAndReco(currCU, true);
+    } else if (currCU.rootCbf()) {
+      finishLMCSAndReco(currCU);
+    }
+
+    if (cs.sps->getIBCFlag()) {
+      cs.fillIBCbuffer(currCU, ctuArea.Y().y / cs.sps->getMaxCUHeight());
+    }
+    m_cLoopFilter->calcFilterStrengthsHorEdge(currCU);
+  }
+}
+void DecCu::TaskReconAll2(CodingStructure &cs, const UnitArea &ctuArea) {
+  for (auto &currCU : cs.traverseCUs(ctuArea)) {
+    currCU.setupPredBuf(m_predBuf);
+    if (currCU.rootCbf()) {
+      reconstructResi(currCU);
+    }
+    if (!CU::isIntra(currCU) && !CU::isIBC(currCU)) {
+      predAndReco(currCU, false);
+    }
+    if (CU::isIntra(currCU) || currCU.ciipFlag() || CU::isIBC(currCU)) {
+      predAndReco(currCU, true);
+    } else if (currCU.rootCbf()) {
+      finishLMCSAndReco(currCU);
+    }
+    if (cs.sps->getIBCFlag()) {
+      cs.fillIBCbuffer(currCU, ctuArea.Y().y / cs.sps->getMaxCUHeight());
+    }
+    m_cLoopFilter->calcFilterStrengthsHorEdge(currCU);
+  }
+}
 
 void DecCu::TaskDeriveCtuMotionInfo(CodingStructure &cs, const UnitArea &ctuArea, MotionHist &hist) {
   PROFILER_SCOPE_AND_STAGE_EXT(1, g_timeProfiler, P_CONTROL_PARSE_DERIVE_LL, cs, CH_L);
@@ -158,21 +236,24 @@ void DecCu::TaskDeriveDMVRMotionInfo(CodingStructure &cs, const UnitArea &ctuAre
 
       for (int y = puPos.y, num = 0; y < (puPos.y + pu.lumaSize().height); y = y + dy) {
         for (int x = puPos.x; x < (puPos.x + pu.lumaSize().width); x = x + dx, num++) {
-          const Mv subPuMv0 = mv0 + pu.mvdL0SubPu[num];
-          const Mv subPuMv1 = mv1 - pu.mvdL0SubPu[num];
+          const Mv mvd = pu.mvdL0SubPu[num];
+          if (mvd.ver || mvd.hor) {
+            const Mv subPuMv0 = mv0 + mvd;
+            const Mv subPuMv1 = mv1 - mvd;
 
-          int y2 = ((y - 1) & ~mask) + scale;
+            int y2 = ((y - 1) & ~mask) + scale;
 
-          for (; y2 < y + dy; y2 += scale) {
-            int x2 = ((x - 1) & ~mask) + scale;
+            for (; y2 < y + dy; y2 += scale) {
+              int x2 = ((x - 1) & ~mask) + scale;
 
-            for (; x2 < x + dx; x2 += scale) {
-              mb.buf = orgPtr + cs.inCtuPos(Position{x2, y2}, CH_L);
+              for (; x2 < x + dx; x2 += scale) {
+                mb.buf = orgPtr + cs.inCtuPos(Position{x2, y2}, CH_L);
 
-              MotionInfo &mi = *mb.buf;
+                MotionInfo &mi = *mb.buf;
 
-              mi.mv[0] = subPuMv0;
-              mi.mv[1] = subPuMv1;
+                mi.mv[0] = subPuMv0;
+                mi.mv[1] = subPuMv1;
+              }
             }
           }
         }
@@ -188,16 +269,18 @@ DecCu::DecCu() { create(); }
 
 DecCu::~DecCu() { destroy(); }
 
-void DecCu::init(IntraPrediction *pcIntra, InterPrediction *pcInter, Reshape *pcReshape, TrQuant *pcTrQuant) {
+void DecCu::init(IntraPrediction *pcIntra, InterPrediction *pcInter, Reshape *pcReshape, TrQuant *pcTrQuant,
+                 LoopFilter *pcLoopFilter) {
   m_pcIntraPred = pcIntra;
   m_pcInterPred = pcInter;
   m_pcTrQuant = pcTrQuant;
   m_pcReshape = pcReshape;
+  m_cLoopFilter = pcLoopFilter;
 }
 
-void DecCu::create() {}
+void DecCu::create() { m_predBuf = xMalloc(Pel, 3 * 128 * 128); }
 
-void DecCu::destroy() {}
+void DecCu::destroy() { xFree(m_predBuf); }
 
 // ====================================================================================================================
 // Public member functions
@@ -206,6 +289,12 @@ void DecCu::destroy() {}
 void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
   PROFILER_SCOPE_AND_STAGE_EXT(1, g_timeProfiler, P_ITRANS_REC, *cu.cs, CH_L);
   CodingStructure &cs = *cu.cs;
+
+#if ADAPTIVE_BIT_DEPTH
+  int bytePerPixel = cs.sps->getBitDepth(CHANNEL_TYPE_LUMA) <= 8 ? 1 : 2;
+#else
+  int bytePerPixel = 2;
+#endif
 
   if (CU::isIntra(cu)) {
     if (cu.colorTransform()) {
@@ -228,7 +317,11 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
 
           if (chType == CHANNEL_TYPE_LUMA) {
             Position pos = Position(tu.Y().x - cu.lumaPos().x, tu.Y().y - cu.lumaPos().y);
+#if ADAPTIVE_BIT_DEPTH
+            piPred = cs.getPredBuf(cu).Y().subBuf(pos, tu.lumaSize(), bytePerPixel);
+#else
             piPred = cs.getPredBuf(cu).Y().subBuf(pos, tu.lumaSize());
+#endif
           } else {
             piPred = cs.getPredBuf(cu).Cb().subBuf(Position(0, 0), tu.chromaSize());
           }
@@ -242,7 +335,6 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
             m_pcIntraPred->predIntraMip(compID, piPred, pu);
           } else if (compID != COMPONENT_Y && PU::isLMCMode(uiChFinalMode)) {
             m_pcIntraPred->initIntraPatternChType(tu, area);
-            m_pcIntraPred->xGetLumaRecPixels(pu, area);
             m_pcIntraPred->predIntraChromaLM(compID, piPred, pu, area, uiChFinalMode);
           } else {
             const bool predRegDiffFromTB = CU::isPredRegDiffFromTB(*tu.cu, compID);
@@ -253,7 +345,11 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
                                                  IntraPrediction::useFilteredIntraRefSamples(compID, pu, tu);
 
             if (tu.cu->ispMode() && isLuma(compID)) {
+#if ADAPTIVE_BIT_DEPTH
+              PelBuf piReco = cs.getRecoBuf(area, bytePerPixel);
+#else
               PelBuf piReco = cs.getRecoBuf(area);
+#endif
               if (predRegDiffFromTB) {
                 if (firstTBInPredReg) {
                   CU::adjustPredArea(areaPredReg);
@@ -269,7 +365,11 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
             if (predRegDiffFromTB) {
               if (firstTBInPredReg) {
                 Position pos(areaPredReg.x - cu.lumaPos().x, areaPredReg.y - cu.lumaPos().y);
+#if ADAPTIVE_BIT_DEPTH
+                piPred = cs.getPredBuf(cu).Y().subBuf(pos, areaPredReg.size(), bytePerPixel);
+#else
                 piPred = cs.getPredBuf(cu).Y().subBuf(pos, areaPredReg.size());
+#endif
 
                 m_pcIntraPred->predIntraAng(compID, piPred, pu, bUseFilteredPredictions);
 
@@ -281,8 +381,12 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
         }
 
         //===== inverse transform =====
+#if ADAPTIVE_BIT_DEPTH
+        PelBuf piReco = cs.getRecoBuf(area, bytePerPixel);
+#else
         PelBuf piReco = cs.getRecoBuf(area);
-        PelBuf piResi = cs.getRecoBuf(area);
+#endif
+        PelBuf piResi = tu.getResiBuf(compID);  //( area );
 
         const Slice &slice = *cu.slice;
         const bool doChrScale = isChroma(compID) && slice.getLmcsEnabledFlag() &&
@@ -295,22 +399,31 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
                   ? tu.Y()
                   : Area(recalcPosition(tu.chromaFormat, tu.chType, CHANNEL_TYPE_LUMA, tu.blocks[tu.chType].pos()),
                          recalcSize(tu.chromaFormat, tu.chType, CHANNEL_TYPE_LUMA, tu.blocks[tu.chType].size()));
-          int chromaResScaleInv = m_pcReshape->calculateChromaAdjVpduNei(tu, area.pos());
-          piReco.scaleSignal(chromaResScaleInv, slice.clpRng(compID));
+          int chromaResScaleInv = m_pcReshape->calculateChromaAdjVpduNei(tu, area.pos(), bytePerPixel);
+          piResi.scaleSignal(chromaResScaleInv, slice.clpRng(compID));
         }
 
         if (TU::getCbf(tu, compID) || (isChroma(compID) && tu.jointCbCr)) {
           piReco.reconstruct(piPred, piResi, slice.clpRng(compID));
         } else {
+#if ADAPTIVE_BIT_DEPTH
+          piReco.copyFrom2(piPred, bytePerPixel);
+#else
           piReco.copyFrom(piPred);
+#endif
         }
       }
     }
   } else {
     const UnitArea &cuArea = cu;
 
+#if ADAPTIVE_BIT_DEPTH
+    PelUnitBuf predBuf = cu.rootCbf() ? cs.getPredBuf(cu) : cs.getRecoBuf(cuArea, bytePerPixel);
+    PelUnitBuf recoBuf = cs.getRecoBuf(cuArea, bytePerPixel);
+#else
     PelUnitBuf predBuf = cu.rootCbf() ? cs.getPredBuf(cu) : cs.getRecoBuf(cuArea);
     PelUnitBuf recoBuf = cs.getRecoBuf(cuArea);
+#endif
 
     // CBF in at least one channel, but no TU split
     if (cu.rootCbf()) {
@@ -371,7 +484,8 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
       }
 #endif
       if (cu.slice->getLmcsEnabledFlag() && m_pcReshape->getCTUFlag() && !doCiipIntra) {
-        predBuf.Y().rspSignal(m_pcReshape->getFwdLUT());
+        PelBuf y = predBuf.Y();
+        m_pcReshape->fwdRSP(y.bufAt(0, 0), y.stride, y.width, y.height);
       }
 
       if ((cu.ciipFlag() && doCiipIntra) || CU::isIBC(cu)) {
@@ -379,7 +493,8 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
       }
     } else {
       if (cu.slice->getLmcsEnabledFlag() && m_pcReshape->getCTUFlag() && !CU::isIBC(cu)) {
-        predBuf.Y().rspSignal(m_pcReshape->getFwdLUT());
+        PelBuf y = predBuf.Y();
+        m_pcReshape->fwdRSP(y.bufAt(0, 0), y.stride, y.width, y.height);
       }
     }
 
@@ -391,6 +506,12 @@ void DecCu::predAndReco(CodingUnit &cu, bool doCiipIntra) {
 void DecCu::finishLMCSAndReco(CodingUnit &cu) {
   PROFILER_SCOPE_AND_STAGE_EXT(1, g_timeProfiler, P_ITRANS_REC, *cu.cs, CH_L);
   CodingStructure &cs = *cu.cs;
+
+#if ADAPTIVE_BIT_DEPTH
+  int bytePerPixel = cs.sps->getBitDepth(CHANNEL_TYPE_LUMA) <= 8 ? 1 : 2;
+#else
+  int bytePerPixel = 2;
+#endif
 
   const uint32_t uiNumVaildComp = getNumberValidComponents(cu.chromaFormat);
   const bool doCS = cs.picHeader->getLmcsEnabledFlag() && cs.picHeader->getLmcsChromaResidualScaleFlag() &&
@@ -412,27 +533,44 @@ void DecCu::finishLMCSAndReco(CodingUnit &cu) {
 
       if (doCS) {
         if (isLuma(compID)) {
-          chromaResScaleInv = m_pcReshape->calculateChromaAdjVpduNei(currTU, currTU.blocks[COMPONENT_Y]);
+          chromaResScaleInv = m_pcReshape->calculateChromaAdjVpduNei(currTU, currTU.blocks[COMPONENT_Y], bytePerPixel);
         } else if ((TU::getCbf(currTU, compID) || currTU.jointCbCr) && currTU.blocks[compID].area() > 4) {
-          const CompArea &area = currTU.blocks[compID];
-          PelBuf resiBuf = cs.getRecoBuf(area);
+          // const CompArea &area = currTU.blocks[compID];
+          PelBuf resiBuf = currTU.getResiBuf(compID);
           resiBuf.scaleSignal(chromaResScaleInv, cu.slice->clpRng(compID));
         }
       }
 
       if (currTU.blocks[compID].valid()) {
+#if ADAPTIVE_BIT_DEPTH
+        CPelBuf predBuf = predUnitBuf.bufs[compID];
+        PelBuf recoBuf = cs.getRecoBuf(currTU.blocks[compID], bytePerPixel);
+        if (bytePerPixel == 1) {
+          predBuf.buf = reinterpret_cast<const Pel *>((reinterpret_cast<const Pel8bit *>(predBuf.buf)) +
+                                                      (currTU.blocks[compID].x - cu.blocks[compID].x) +
+                                                      (currTU.blocks[compID].y - cu.blocks[compID].y) * predBuf.stride);
+        } else {
+          OFFSET(predBuf.buf, predBuf.stride, currTU.blocks[compID].x - cu.blocks[compID].x,
+                 currTU.blocks[compID].y - cu.blocks[compID].y);
+        }
+#else
         CPelBuf predBuf = predUnitBuf.bufs[compID];
         OFFSET(predBuf.buf, predBuf.stride, currTU.blocks[compID].x - cu.blocks[compID].x,
                currTU.blocks[compID].y - cu.blocks[compID].y);
-        // CPelBuf resiBuf = cs.getRecoBuf( currTU.blocks[compID] );
         PelBuf recoBuf = cs.getRecoBuf(currTU.blocks[compID]);
+#endif
         predBuf.width = recoBuf.width;
         predBuf.height = recoBuf.height;
 
         if (TU::getCbf(currTU, compID) || (isChroma(compID) && currTU.jointCbCr)) {
-          recoBuf.reconstruct(predBuf, recoBuf, cu.slice->clpRngs());
+          PelBuf resi = currTU.getResiBuf(compID);
+          recoBuf.reconstruct(predBuf, resi, cu.slice->clpRngs());
         } else if (cu.planeCbf[compID]) {
+#if ADAPTIVE_BIT_DEPTH
+          recoBuf.copyFrom2(predBuf, bytePerPixel);
+#else
           recoBuf.copyFrom(predBuf);
+#endif
         }
       }
     }
@@ -440,7 +578,7 @@ void DecCu::finishLMCSAndReco(CodingUnit &cu) {
 }
 
 void DecCu::reconstructResi(CodingUnit &cu) {
-  CodingStructure &cs = *cu.cs;
+  // CodingStructure &cs = *cu.cs;
 
   for (TransformUnit &tu : TUTraverser(&cu.firstTU, cu.lastTU->next)) {
     for (const auto &area : tu.blocks) {
@@ -451,11 +589,13 @@ void DecCu::reconstructResi(CodingUnit &cu) {
       const ComponentID compID = area.compID;
 
       //===== inverse transform =====
-      PelBuf piResi = cs.getRecoBuf(area);
+      // PelBuf piResi = cs.getRecoBuf( area );
+      PelBuf piResi = tu.getResiBuf(compID);
 
       if (tu.jointCbCr && isChroma(compID)) {
         if (compID == COMPONENT_Cb) {
-          PelBuf resiCr = cs.getRecoBuf(tu.blocks[COMPONENT_Cr]);
+          // PelBuf resiCr = cs.getRecoBuf( tu.blocks[ COMPONENT_Cr ] );
+          PelBuf resiCr = tu.getResiBuf(COMPONENT_Cr);
           if (tu.jointCbCr >> 1) {
             QpParam qpCb(tu, compID);
             m_pcTrQuant->invTransformNxN(tu, COMPONENT_Cb, piResi, qpCb);
@@ -493,6 +633,12 @@ void DecCu::xIntraRecACT(CodingUnit &cu) {
   CodingStructure &cs = *cu.cs;
   const Slice &slice = *cu.slice;
 
+#if ADAPTIVE_BIT_DEPTH
+  int bytePerPixel = cs.sps->getBitDepth(CHANNEL_TYPE_LUMA) <= 8 ? 1 : 2;
+#else
+  int bytePerPixel = 2;
+#endif
+
   for (TransformUnit &tu : TUTraverser(&cu.firstTU, cu.lastTU->next)) {
 #if JVET_S0234_ACT_CRS_FIX
     cs.getRecoBuf(tu).colorSpaceConvert(cs.getRecoBuf(tu), slice.clpRng(COMPONENT_Y));
@@ -517,7 +663,7 @@ void DecCu::xIntraRecACT(CodingUnit &cu) {
                 ? tu.Y()
                 : Area(recalcPosition(tu.chromaFormat, tu.chType, CHANNEL_TYPE_LUMA, tu.blocks[tu.chType].pos()),
                        recalcSize(tu.chromaFormat, tu.chType, CHANNEL_TYPE_LUMA, tu.blocks[tu.chType].size()));
-        int chromaResScaleInv = m_pcReshape->calculateChromaAdjVpduNei(tu, area.pos());
+        int chromaResScaleInv = m_pcReshape->calculateChromaAdjVpduNei(tu, area.pos(), bytePerPixel);
         piReco.scaleSignal(chromaResScaleInv, slice.clpRng(compID));
       }
     }
@@ -571,7 +717,6 @@ void DecCu::xIntraRecACT(CodingUnit &cu) {
         }
 
         if (compID != COMPONENT_Y && PU::isLMCMode(uiChFinalMode)) {
-          m_pcIntraPred->xGetLumaRecPixels(pu, area);
           m_pcIntraPred->predIntraChromaLM(compID, piPred, pu, area, uiChFinalMode);
         } else {
           if (predRegDiffFromTB) {
@@ -587,7 +732,8 @@ void DecCu::xIntraRecACT(CodingUnit &cu) {
       }
 
       PelBuf piReco = cs.getRecoBuf(area);
-      PelBuf piResi = cs.getRecoBuf(area);
+      // PelBuf piResi = cs.getRecoBuf( area );
+      PelBuf piResi = tu.getResiBuf(compID);
 
       piReco.reconstruct(piPred, piResi, slice.clpRng(compID));
     }
@@ -730,8 +876,18 @@ void DecCu::xDeriveCUMV(CodingUnit &cu, MotionHist &hist) {
 
   bool isIbcSmallBlk = CU::isIBC(cu) && (cu.lwidth() * cu.lheight() <= 16);
   if (!pu.affineFlag() && !pu.geoFlag() && !isIbcSmallBlk) {
-    HPMVInfo mi(pu.getMotionInfo(), pu.interDir() == 3 ? pu.BcwIdx() : BCW_DEFAULT, pu.imv() == IMV_HPEL);
-    MotionHist::addMiToLut(CU::isIBC(cu) ? hist.motionLutIbc : hist.motionLut, mi);
+    const unsigned log2ParallelMergeLevel = (pu.cs->sps->getLog2ParallelMergeLevelMinus2() + 2);
+    const unsigned xBr = pu.Y().width + pu.Y().x;
+    const unsigned yBr = pu.Y().height + pu.Y().y;
+    bool enableHmvp = ((xBr >> log2ParallelMergeLevel) > (pu.Y().x >> log2ParallelMergeLevel)) &&
+                      ((yBr >> log2ParallelMergeLevel) > (pu.Y().y >> log2ParallelMergeLevel));
+    bool isIbc = CU::isIBC(cu);
+    bool enableInsertion = isIbc || enableHmvp;
+
+    if (enableInsertion) {
+      HPMVInfo mi(pu.getMotionInfo(), pu.interDir() == 3 ? pu.BcwIdx() : BCW_DEFAULT, pu.imv() == IMV_HPEL);
+      MotionHist::addMiToLut(CU::isIBC(cu) ? hist.motionLutIbc : hist.motionLut, mi);
+    }
   }
 }
 //! \}

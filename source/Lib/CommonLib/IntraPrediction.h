@@ -86,7 +86,6 @@ class IntraPrediction {
 
   Pel *m_piTemp;
   Pel *m_pMdlmTemp;  // for MDLM mode
-  MatrixIntraPrediction m_matrixIntraPred;
 
  protected:
   ChromaFormat m_currChromaFormat;
@@ -94,19 +93,31 @@ class IntraPrediction {
   int m_topRefLength;
   int m_leftRefLength;
   // prediction
-  void xPredIntraDc(const CPelBuf &pSrc, PelBuf &pDst, const ChannelType channelType,
-                    const bool enableBoundaryFilter = true, const int mrlIdx = 0);
+  void xPredIntraDc(const CPelBuf &pSrc, PelBuf &pDst, const int mrlIdx = 0);
   void xPredIntraAng(const CPelBuf &pSrc, PelBuf &pDst, const ChannelType channelType, const uint32_t dirMode,
-                     const ClpRng &clpRng, const SPS &sps, int multiRefIdx, const bool useFilteredPredSamples,
-                     bool &doPDPC, const bool useISP = false, const Size cuSize = Size(0, 0));
+                     const ClpRng &clpRng, int multiRefIdx, const bool useFilteredPredSamples, bool &doPDPC,
+                     const bool useISP = false, const Size cuSize = Size(0, 0));
+  template <typename T>
+  void xPredIntraAngImp(const CPelBuf &pSrc, PelBuf &pDst, const ChannelType channelType, const uint32_t dirMode,
+                        const ClpRng &clpRng, int multiRefIdx, const bool useFilteredPredSamples, bool &doPDPC,
+                        const bool useISP = false, const Size cuSize = Size(0, 0));
 
   void xPredIntraBDPCM(const CPelBuf &pSrc, PelBuf &pDst, const uint32_t dirMode, const ClpRng &clpRng);
   Pel xGetPredValDc(const CPelBuf &pSrc, const Size &dstSize, const int mrlIdx);
 
+  template <typename T>
   void xFillReferenceSamples(const CPelBuf &recoBuf, Pel *refBufUnfiltered, const CompArea &area,
                              const TransformUnit &tu) const;
+  template <typename T>
+  void xFillReferenceSamplesSameCu(const CompArea &area, const CodingUnit &cu, PelBuf &recBuf, bool isLeftAvail,
+                                   bool isAboveAvail);
+
+  template <typename T>
   void xFilterReferenceSamples(const Pel *refBufUnfiltered, Pel *refBufFiltered, const CompArea &area, const SPS &sps,
                                int multiRefIdx, ptrdiff_t predStride = 0) const;
+
+  template <typename T>
+  void xGetLumaRecPixels(const PredictionUnit &pu, CompArea chromaArea);
 
   static int getWideAngle(int width, int height, int predMode);
   void setReferenceArrayLengths(const CompArea &area);
@@ -115,10 +126,14 @@ class IntraPrediction {
 
   void xFilterGroup(Pel *pMulDst[], int i, Pel const *const piSrc, int iRecStride, bool bAboveAvaillable,
                     bool bLeftAvaillable);
+
+  template <typename T>
   void xGetLMParameters(const PredictionUnit &pu, const ComponentID compID, const CompArea &chromaArea, int &a, int &b,
                         int &iShift);
 
  public:
+  MatrixIntraPrediction m_matrixIntraPred;
+
   IntraPrediction();
   virtual ~IntraPrediction();
 
@@ -133,7 +148,6 @@ class IntraPrediction {
   // Cross-component Chroma
   void predIntraChromaLM(const ComponentID compID, PelBuf &piPred, const PredictionUnit &pu, const CompArea &chromaArea,
                          int intraDir);
-  void xGetLumaRecPixels(const PredictionUnit &pu, CompArea chromaArea);
   /// set parameters from CU data for accessing intra data
   void initIntraPatternChType(const TransformUnit &cu, const CompArea &area, const bool bFilterRefSamples = false);
   void initIntraPatternChTypeISP(const CodingUnit &cu, const CompArea &area, PelBuf &piReco);
@@ -153,13 +167,17 @@ class IntraPrediction {
   void switchBuffer(const PredictionUnit &pu, ComponentID compID, PelBuf srcBuff, Pel *dst);
   void geneIntrainterPred(const CodingUnit &cu);
 
+  void (*IntraPredAngleCore)(Pel *pDstBuf, const ptrdiff_t dstStride, Pel *refMain, int width, int height, int deltaPos,
+                             int intraPredAngle, const TFilterCoeff *ff, const bool useCubicFilter,
+                             const ClpRng &clpRng);
   void (*IntraPredAngleCore4)(Pel *pDstBuf, const ptrdiff_t dstStride, Pel *refMain, int width, int height,
                               int deltaPos, int intraPredAngle, const TFilterCoeff *ff, const bool useCubicFilter,
                               const ClpRng &clpRng);
   void (*IntraPredAngleCore8)(Pel *pDstBuf, const ptrdiff_t dstStride, Pel *refMain, int width, int height,
                               int deltaPos, int intraPredAngle, const TFilterCoeff *ff, const bool useCubicFilter,
                               const ClpRng &clpRng);
-
+  void (*IntraPredAngleChroma)(int16_t *pDst, const ptrdiff_t dstStride, int16_t *pBorder, int width, int height,
+                               int deltaPos, int intraPredAngle);
   void (*IntraPredAngleChroma4)(int16_t *pDst, const ptrdiff_t dstStride, int16_t *pBorder, int width, int height,
                                 int deltaPos, int intraPredAngle);
   void (*IntraPredAngleChroma8)(int16_t *pDst, const ptrdiff_t dstStride, int16_t *pBorder, int width, int height,
@@ -171,14 +189,23 @@ class IntraPrediction {
                                   const ClpRng &clpRng);
   void (*xPredIntraPlanar)(const CPelBuf &pSrc, PelBuf &pDst, const SPS &sps);
 
+  void (*IntraHorVerPDPC)(Pel *pDstBuf, const ptrdiff_t dstStride, Pel *refSide, const CPelBuf &pSrc, const int width,
+                          const int height, int scale, const Pel *refMain, const ClpRng &clpRng);
+  void (*IntraAnglePDPC)(Pel *pDsty, const ptrdiff_t dstStride, Pel *refSide, const int width, const int height,
+                         int scale, int invAngle);
+
   void (*GetLumaRecPixel420)(const int width, const int height, const Pel *pRecSrc0, const ptrdiff_t iRecStride,
                              Pel *pDst0, const ptrdiff_t iDstStride);
 
-#if ENABLE_SIMD_OPT_INTRAPRED
-  void initIntraPredictionX86();
-  template <X86_VEXT vext>
-  void _initIntraPredictionX86();
+#if ADAPTIVE_BIT_DEPTH
+  int m_bytePerPixel;
+#endif
 
+  void initIntraPrediction(int bitDepth);
+#if ENABLE_SIMD_OPT_INTRAPRED
+  void initIntraPredictionX86(int bitDepth);
+  template <X86_VEXT vext>
+  void _initIntraPredictionX86(int bitDepth);
 #endif
 };
 

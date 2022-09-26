@@ -186,12 +186,12 @@ void paddPicBorderTopSIMD(Pel* pi, ptrdiff_t stride, int width, int xmargin, int
 }
 
 template <X86_VEXT vext>
-void Picture::_initPictureX86() {
+void Picture::_initPictureX86(int bitDepth) {
   paddPicBorderBot = paddPicBorderBotSIMD<vext>;
   paddPicBorderTop = paddPicBorderTopSIMD<vext>;
   paddPicBorderLeftRight = paddPicBorderLeftRightSIMD<vext>;
 }
-template void Picture::_initPictureX86<SIMDX86>();
+template void Picture::_initPictureX86<SIMDX86>(int bitDepth);
 
 #  endif  // TARGET_SIMD_X86
 #endif

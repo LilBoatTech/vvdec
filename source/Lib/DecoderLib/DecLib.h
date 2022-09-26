@@ -57,22 +57,41 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include "CommonLib/CommonDef.h"
 #include "CommonLib/Picture.h"
 
-#include "Utilities/NoMallocThreadPool.h"
+//#include "Utilities/NoMallocThreadPool.h"
+#include "Utilities/threadpool.h"
 
 //! \ingroup DecoderLib
 //! \{
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
-
+struct StCSMemory {
+  SAOBlkParam* saoBlkParam;
+  CtuLoopFilterData* ctuLoopFilterDataHorEdge;
+  CtuCuPtr* ctuCuPtr;
+};
+class CFrameData {
+ public:
+  std::mutex lock;
+  std::stack<std::pair<Pel*, size_t>> m_residuals;
+  std::stack<std::pair<StCSMemory, size_t>> m_cs;
+  Pel* getNewResidual(size_t size);
+  void recycleResidual(Pel* buf, size_t size);
+  StCSMemory getCSMemory(size_t size);
+  void recycleCSMemory(SAOBlkParam* saoBlkParam, CtuLoopFilterData* ctuLoopFilterDataHorEdge, CtuCuPtr* ctuCuPtr,
+                       size_t size);
+  ~CFrameData();
+};
 /// decoder wrapper class
 class DecLib {
   PicListManager m_picListManager;
   PicHeader* m_picHeader = nullptr;
   DecLibParser m_decLibParser{*this, m_picListManager, m_picHeader};
-  std::list<DecLibRecon> m_decLibRecon{2};
+  std::list<DecLibRecon> m_decLibRecon;
 
-  std::unique_ptr<NoMallocThreadPool> m_decodeThreadPool;
+  // std::unique_ptr<NoMallocThreadPool> m_decodeThreadPool;
+  vvdec::VVDecThreadPool* m_threadPool;
+  int m_numPool;
 
   unsigned int m_parseFrameDelay = 0;
 
@@ -86,32 +105,30 @@ class DecLib {
 
   std::vector<NalUnitType> m_pictureUnitNals;
   std::list<InputNALUnit> m_pictureSeiNalus;
+  std::stack<std::pair<Pel*, size_t>> m_residuals;
 
  public:
-#if JVET_Q0044_SLICE_IDX_WITH_SUBPICS
   int m_maxDecSubPicIdx = 0;
   int m_maxDecSliceAddrInSubPic = -1;
-#endif
-#if JVET_O1143_SUBPIC_BOUNDARY
   int m_targetSubPicIdx = 0;
-#endif
 
   DecLib();
   ~DecLib() = default;
 
-  void create(int numDecThreads, int parserFrameDelay);
+  void create(int numDecThreads, int parserFrameDelay, int numFrameThreads);
   void destroy();
 
   const char* getDecoderCapabilities() const { return m_sDecoderCapabilities.c_str(); }
 
   void setTargetDecLayer(int layer) { m_decLibParser.setTargetDecLayer(layer); }
   void setMaxTemporalLayer(int layer) { m_iMaxTemporalLayer = layer; }
+  int getNumFrameDecoder() { return (int)m_decLibRecon.size(); }
+  // Pel*     getNewResidual(size_t size);
+  // void     addResidual(Pel* buf, size_t size);
 
-#if JVET_P0288_PIC_OUTPUT
+  CFrameData m_frameData;
+
   Picture* decode(InputNALUnit& nalu, int* pSkipFrame = nullptr, int iTargetLayer = -1);
-#else
-  Picture* decode(InputNALUnit& nalu, int* pSkipFrame = nullptr);
-#endif
   Picture* flushPic();
   void releasePicture(Picture* pcPic) {
     m_picListManager.releasePicture(pcPic);

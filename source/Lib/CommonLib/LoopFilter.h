@@ -63,76 +63,90 @@ THE POSSIBILITY OF SUCH DAMAGE.
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
-
+typedef int (*pfunc_xCalBsSameRef)(const MotionInfo& miP, const MotionInfo& miQ, const Picture* piRefP0,
+                                   const Picture* piRefP1, const Picture* piRefQ0, const Picture* piRefQ1);
+typedef void (*pfunc_xPelFilterLuma)(Pel* piSrc, const ptrdiff_t step, const ptrdiff_t offset, const int tc,
+                                     const bool sw, const int iThrCut, const bool bFilterSecondP,
+                                     const bool bFilterSecondQ, const ClpRng& clpRng);
+typedef void (*pfunc_xFilteringPandQ)(Pel* src, ptrdiff_t step, const ptrdiff_t offset, int numberPSide,
+                                      int numberQSide, int tc);
 /// deblocking filter class
 class LoopFilter {
  private:
   /// CU-level deblocking function
   template <DeblockEdgeDir edgeDir>
-  void xDeblockCtuArea(CodingStructure& cs, const UnitArea& area, const ChannelType chType) const;
+  void xDeblockCtuArea(CodingStructure& cs, const UnitArea& area, const ChannelType chType,
+                       LoopFilterParam* loopFilterParamVerEdge);
 
   // set / get functions
-  LFCUParam xGetLoopfilterParam(const CodingUnit& cu) const;
+  LFCUParam xGetLoopfilterParam(const CodingUnit& cu);
 
   // filtering functions
   template <DeblockEdgeDir edgeDir>
   void xGetBoundaryStrengthSingle(LoopFilterParam& lfp, const CodingUnit& cu, const Position& localPos,
-                                  const CodingUnit& cuP, CtuData& ctuData, bool pqSameCtu) const;
+                                  const CodingUnit& cuP, CtuData& ctuData, bool pqSameCtu);
   template <DeblockEdgeDir edgeDir>
-  void xSetEdgeFilterInsidePu(const CodingUnit& cu, const Area& area, const bool bValue, CtuData& ctuData);
+  void xSetEdgeFilterInsidePu(const CodingUnit& cu, const Area& area, const bool bValue, CtuData& ctuData,
+                              LoopFilterParam* loopFilterParamVerEdge);
 
   template <DeblockEdgeDir edgeDir>
   void xSetMaxFilterLengthPQFromTransformSizes(const CodingUnit& cu, const TransformUnit& currTU, const bool bValue,
-                                               bool deriveBdStrngt, CtuData& ctuData, bool pqSameCtu);
+                                               bool deriveBdStrngt, CtuData& ctuData, bool pqSameCtu,
+                                               LoopFilterParam* loopFilterParamVerEdge);
   template <DeblockEdgeDir edgeDir>
-  void xSetMaxFilterLengthPQForCodingSubBlocks(const CodingUnit& cu, CtuData& ctuData);
+  void xSetMaxFilterLengthPQForCodingSubBlocks(const CodingUnit& cu, CtuData& ctuData,
+                                               LoopFilterParam* loopFilterParamVerEdge);
 
-  template <DeblockEdgeDir edgeDir>
-  void xEdgeFilterLuma(CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp) const;
-  template <DeblockEdgeDir edgeDir>
-  void xEdgeFilterChroma(CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp) const;
+  template <DeblockEdgeDir edgeDir, typename T>
+  void xEdgeFilterLuma(CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp);
+  template <DeblockEdgeDir edgeDir, typename T>
+  void xEdgeFilterChroma(CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp);
 
 #if LUMA_ADAPTIVE_DEBLOCKING_FILTER_QP_OFFSET
-  void deriveLADFShift(const Pel* src, const ptrdiff_t stride, int& shift, const DeblockEdgeDir edgeDir,
-                       const SPS sps) const;
+  template <typename T>
+  void deriveLADFShift(const T* src, const ptrdiff_t stride, int& shift, const DeblockEdgeDir edgeDir, const SPS sps);
 
 #endif
   static const uint16_t sm_tcTable[MAX_QP + 3];
   static const uint8_t sm_betaTable[MAX_QP + 1];
 
-  void (*xPelFilterLuma)(Pel* piSrc, const ptrdiff_t step, const ptrdiff_t offset, const int tc, const bool sw,
-                         const int iThrCut, const bool bFilterSecondP, const bool bFilterSecondQ, const ClpRng& clpRng);
-  void (*xFilteringPandQ)(Pel* src, ptrdiff_t step, const ptrdiff_t offset, int numberPSide, int numberQSide, int tc);
+  int (*xCalBsSameRef)(const MotionInfo& miP, const MotionInfo& miQ, const Picture* piRefP0, const Picture* piRefP1,
+                       const Picture* piRefQ0, const Picture* piRefQ1);
 
-#ifdef TARGET_SIMD_X86
-  void initLoopFilterX86();
-  template <X86_VEXT vext>
-  void _initLoopFilterX86();
-#endif
-  inline bool isCrossedByVirtualBoundaries(const PicHeader* picHeader, const Area& area, int& numHorVirBndry,
-                                           int& numVerVirBndry, int horVirBndryPos[], int verVirBndryPos[]) const;
-  inline void xDeriveEdgefilterParam(const Position pos, const int numVerVirBndry, const int numHorVirBndry,
-                                     const int verVirBndryPos[], const int horVirBndryPos[], bool& verEdgeFilter,
-                                     bool& horEdgeFilter) const;
+  void (*xEdgeFilterLumaImp)(Pel* _piSrc, ptrdiff_t srcStep, ptrdiff_t offset, bool sidePisLarge, bool sideQisLarge,
+                             int iBeta, int iTc, int maxFilterLengthP, int maxFilterLengthQ, int iSideThreshold,
+                             int iThrCut, const ClpRng& clpRng);
+
+  inline bool isCrossedByVirtualBoundariesHorEdge(const PicHeader* picHeader, int y, int height, int& numHorVirBndry,
+                                                  int horVirBndryPos[]);
+  inline bool isCrossedByVirtualBoundariesVerEdge(const PicHeader* picHeader, int x, int width, int& numVerVirBndry,
+                                                  int verVirBndryPos[]);
+
+  inline void xDeriveEdgefilterParam(const int pos, const int numVirBndry, const int virBndryPos[], bool& edgeFilter);
 
  public:
   LoopFilter();
   ~LoopFilter();
-
   /// picture-level deblocking filter
-  void loopFilterPic(CodingStructure& cs) const;
-  void loopFilterPicLine(CodingStructure& cs, const ChannelType chType, const int ctuLine, const int offset = 0,
-                         DeblockEdgeDir edgeDir = NUM_EDGE_DIR) const;
   void loopFilterCTU(CodingStructure& cs, const ChannelType chType, const int ctuCol, const int ctuLine,
-                     const int offset = 0, DeblockEdgeDir edgeDir = NUM_EDGE_DIR) const;
-  void calcFilterStrengthsCTU(CodingStructure& cs, const UnitArea& ctuArea);
+                     DeblockEdgeDir edgeDir = NUM_EDGE_DIR, LoopFilterParam* loopFilterParamVerEdge = nullptr);
 
-  void calcFilterStrengths(const CodingUnit& cu);
+  void calcFilterStrengthsHorEdge(const CodingUnit& cu);
+  void calcFilterStrengthsVerEdge(const CodingUnit& cu, LoopFilterParam* loopFilterParamVerEdge);
+  void calcFilterStrengthsVerEdgeCTU(CodingStructure& cs, const UnitArea& ctuArea,
+                                     LoopFilterParam* loopFilterParamVerEdge);
 
-  static int getBeta(const int qp) {
+  int getBeta(const int qp) {
     const int indexB = Clip3(0, MAX_QP, qp);
     return sm_betaTable[indexB];
   }
+
+  void initLoopFilter(int bitDepth);
+#ifdef TARGET_SIMD_X86
+  void initLoopFilterX86(int bitDepth);
+  template <X86_VEXT vext>
+  void _initLoopFilterX86(int bitDepth);
+#endif
 };
 
 //! \}

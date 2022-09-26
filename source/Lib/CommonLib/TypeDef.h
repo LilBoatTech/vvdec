@@ -74,7 +74,6 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #define JVET_O1170_CHECK_BV_AT_DECODER 0  // For decoder to check if a BV is valid or not
 
 #define DISABLE_CONFROMANCE_CHECK 1
-#define DISABLE_CHECK_NO_OUTPUT_PRIOR_PICS_FLAG 0
 
 #define TBD 1
 #define TBT 1
@@ -82,67 +81,36 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #define JVET_O1143_SUBPIC_BOUNDARY TBT  // to be tested // treat subpicture boundary as picture boundary
 #if JVET_O1143_SUBPIC_BOUNDARY
-#  define JVET_O1143_LPF_ACROSS_SUBPIC_BOUNDARY 1
-#  define JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY 1
 #endif
+
+#define GDR_ADJ 1
+#define ALF_FIX 1
 
 #define JVET_P0365_SCALING_MATRIX_LFNST \
   TBD  // enc crash // JVET-P0365: Signal flag to indicate whether scaling matrices are used for LFNST-coded blocks
-#define JVET_P0117_PTL_SCALABILITY \
-  TBT  // to be tested // JVET-P0117: sps_ptl_dpb_hrd_params_present_flag related syntax change, others in JVET-Q0786
-#define JVET_P0101_POC_MULTILAYER TBT  // to be tested // POC derivation for pictures in dependent layers
-#define JVET_P0288_PIC_OUTPUT TBT      // to be tested // JVET-P0288: Set the value of PictureOutputFlag
 
-#define JVET_Q0044_SLICE_IDX_WITH_SUBPICS TBT  // to be tested // JVET-Q0044: slice index with subpictures
-#define JVET_Q0786_PTL_only \
-  TBT  // to be tested // JVET-Q0786: modifications to VPS syntax - PTL part only (signal PTL for single layer OLSs)
 #define JVET_Q0438_MONOCHROME_BUGFIXES TBT  // to be tested with 4:0:0 // JVET-Q0438: Monochrome bug fixes
 #define JVET_Q0818_PT_SEI \
   TBT  // to be tested // JVET-Q0818: add display_elemental_periods_minus1 to picture timing SEI message
-#define JVET_Q0814_DPB \
-  TBT  // to be tested // JVET-Q0814: DPB capacity is based on picture units regardless of the resoltuion
 
 #define JVET_R0058 TBT  // to be tested // JVET-R0058: the combination of RPR, subpictures, and scalability
 #define JVET_R0203_IRAP_LEADING_CONSTRAINT \
   TBT  // to be tested // JVET-R0203: Constraint that IRAP NAL unit type cannot be mixed with RASL_NUT / RADL_NUT
-#define JVET_Q0764_WRAP_AROUND_WITH_RPR TBT  // JVET-Q0764: Combination of wrap around offset and RPR
-#define JVET_R0483_SH_TSRC_DISABLED_FLAG_CLEANUP \
-  TBT  // to be tested // JVET-R0483 Comb 4: R0049 + R0271, only R0049 method 3 aspect (Skip signaling
-       // sh_ts_residual_coding_disabled_flag when sps_transform_skip_enabled_flag = 0, also proposed in R0068, R0097,
-       // R0142, R0153) as R0271 has its own macro
-#define JVET_R0380_SCALING_MATRIX_DISABLE_YCC_OR_RGB \
-  TBT  // to be tested // JVET-R0380 solution3-3: Disable scaling matrix for blocks coded in alternative colour space.
-#define R0091_CONSTRAINT_SLICE_ORDER \
-  TBT  // to be tested // JVET-R0091: constraint slice signalling order to be the same as slice coding order
-#define JVET_R0165_OPTIONAL_ENTRY_POINT TBT      // to be tested // JVET-R0165: Optional entry point offset
 #define JVET_R0166_SCALING_LISTS_CHROMA_444 TBT  // to be tested // JVET-R0166: Scaling list for Chroma 444
 #define JVET_R0191_ASPECT3 \
   TBT  // JVET-R0191#3: Modify the upper range of vps_num_dpb_params and num_ols_hrd_params_minus1 to be total number of
        // OLSs minus the number of single-layer OLSs
        //               Constrain that each PTL, DPB, and HRD params in VPS are referred to at least once
 #define JVET_R0276_REORDERED_SUBPICS TBT  // JVET-R0276: reference picture constraint for reordered sub-pictures
-#define JVET_R0350_MIP_CHROMA_444_SINGLETREE \
-  TBT  // to be tested // JVET-R0350: MIP for chroma in case of 4:4:4 format and single tree
 #define JVET_R0294_SUBPIC_HASH \
   TBT  // to be tested // JVET-R0294: Allow decoded picture hash SEI messages to be nested in subpicture context
 
 #define JVET_R0270 TBC  // JVET-S0270: Treating picture with mixed RASL and RADL slices as RASL picture
-#define JVET_S0258_SUBPIC_CONSTRAINTS TBT  // to be tested // JVET-S0258: sub-picture constraints
 #define JVET_S0234_ACT_CRS_FIX \
   TBT  // to be tested // JVET-S0234: perform chroma residual scaling in RGB domain when ACT is on
-#define JVET_S0123_IDR_UNAVAILABLE_REFERENCE \
-  TBT  // to be tested // JVET-S0123: Invoke the generation of unavailable reference picture for an IDR picture that has
-       // RPLs.
-       //             Change the process for deriving empty RPLs when sps_idr_rpl_present_flag is equal to 0 and
-       //             nal_unit_type is equal to IDR_W_RADL or IDR_N_LP to involve pps_rpl_info_in_ph_flag.
-#define JVET_S0124_UNAVAILABLE_REFERENCE \
-  TBT  // to be tested // JVET-S0124: Add TemporalId, ph_non_ref_pic_flag, and ph_pic_parameter_set_id for generating
-       // unavailable reference pictures
 #define JVET_S0063_VPS_SIGNALLING \
   TBT  // to be tested // Modifications to VPS signalling - conditionally signal vps_num_ptls_minus1
 #define JVET_S0155_EOS_NALU_CHECK TBC  // JVET-S0155: Constraints on EOS NAL units
-#define JVET_S0071_SAME_SIZE_SUBPIC_LAYOUT \
-  TBT                                // to be tested // JVET-S0071 : shortcut when all subpictures have the same size
 #define JVET_S0098_SLI_FRACTION TBT  // to be tested // JVET-S0098 Item 3: Add non_subpic_layers_fraction syntax element
 #define JVET_S0048_SCALING_OFFSET \
   TBT  // to be tested // JVET-S0048 Aspect2: change the constraint on the value ranges of scaling window offsets to be
@@ -160,15 +128,11 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #define JVET_S0181_PROPOSAL1 \
   TBT  // to be tested // JVET-0181_Proposal1: Conditionally signal bp_sublayer_initial_cpb_removal_delay_present_flag
 #define JVET_S0177_SCALABLE_NESTING_SEI \
-  TBT                                     // to be tested // JVET-S0177: Constraints on the scalable nesting SEI message
-#define JVET_S0178_GENERAL_SEI_CHECK TBT  // to be tested // JVET-S0178: General SEI semantics and constraints
-#define JVET_S0176_SLI_SEI TBT            // to be tested // JVET-S0176: On the subpicture level information SEI message
+  TBT                           // to be tested // JVET-S0177: Constraints on the scalable nesting SEI message
+#define JVET_S0176_SLI_SEI TBT  // to be tested // JVET-S0176: On the subpicture level information SEI message
 #define JVET_S0181_PROPOSAL2_BUFFERING_PERIOD_CLEANUP \
   TBT  // to be tested // JVET-S0181 Proposal2: Move signalling of bp_max_sublayers_minus1 and conditionally signal
        // bp_cpb_removal_delay_deltas_present_flag, bp_num_cpb_removal_delay_deltas_minus1, and bp_cpb_removal_delay
-#define JVET_S0138_GCI_PTL \
-  TBT  // to be tested // JVET-S_Notes_d9: move frame_only_constraint_flag and single_layer_constraint_flag into PTL for
-       // easy access
 #define JVET_S0185_PROPOSAl1_PICTURE_TIMING_CLEANUP \
   TBT  // to be tested // JVET-S0185: Proposal 1, put syntax element pt_cpb_removal_delay_minus1[] first, followed by
        // similar information for sub-layers, followed by pt_dpb_output_delay
@@ -233,10 +197,16 @@ THE POSSIBILITY OF SUCH DAMAGE.
        ///< 16-bit video (originally developed as part of N0188)
 #endif
 
-// SIMD optimizations
-#define SIMD_ENABLE 1
+#  define ADAPTIVE_BIT_DEPTH 0
+
+#if defined(__i386__) || defined(i386) || defined(__x86_64__) || defined(_M_X64) || defined(_WIN32) || defined(_MSC_VER)
+#  define SIMD_ENABLE_X86 1
+#else
+#  define SIMD_ENABLE_X86 0
+#endif
+
 #define ENABLE_SIMD_OPT \
-  (SIMD_ENABLE && !RExt__HIGH_BIT_DEPTH_SUPPORT)  ///< SIMD optimizations, no impact on RD performance
+  (SIMD_ENABLE_X86 && !RExt__HIGH_BIT_DEPTH_SUPPORT)  ///< SIMD optimizations, no impact on RD performance
 #define ENABLE_SIMD_OPT_MCIF \
   (1 && ENABLE_SIMD_OPT)  ///< SIMD optimization for the interpolation filter, no impact on RD performance
 #define ENABLE_SIMD_OPT_BUFFER \
@@ -256,6 +226,8 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #define ENABLE_SIMD_TCOEFF_OPS (1 && ENABLE_SIMD_OPT)
 #define ENABLE_SIMD_LOG2 (1 && ENABLE_SIMD_OPT)
 #define ENABLE_SIMD_DBLF (1 && ENABLE_SIMD_OPT)
+
+#define ENABLE_CHECK_CABAC_READ 0
 
 // End of SIMD optimizations
 
@@ -304,6 +276,9 @@ typedef int16_t TCoeffSig;
 typedef int16_t TMatrixCoeff;  ///< transform matrix coefficient
 typedef int16_t TFilterCoeff;  ///< filter coefficient
 typedef int Intermediate_Int;  ///< used as intermediate value in calculations
+#  if ADAPTIVE_BIT_DEPTH
+typedef uint8_t Pel8bit;  ///< used as intermediate value in calculations
+#  endif
 #endif
 
 typedef uint64_t Distortion;  ///< distortion measurement
@@ -418,6 +393,20 @@ enum DFunc {
   DF_SAD16N = DF_SAD + 7,  ///< 16NxM SAD
 
   DF_TOTAL_FUNCTIONS = DF_SAD16N + 1
+};
+
+// X5 means to calculate 5 costs at one time
+enum DFuncX5 {
+  DF_SAD_X5 = 0,                 ///< general size SAD
+  DF_SAD2_X5 = DF_SAD_X5 + 1,    ///<   2xM SAD
+  DF_SAD4_X5 = DF_SAD_X5 + 2,    ///<   4xM SAD
+  DF_SAD8_X5 = DF_SAD_X5 + 3,    ///<   8xM SAD
+  DF_SAD16_X5 = DF_SAD_X5 + 4,   ///<  16xM SAD
+  DF_SAD32_X5 = DF_SAD_X5 + 5,   ///<  32xM SAD
+  DF_SAD64_X5 = DF_SAD_X5 + 6,   ///<  64xM SAD
+  DF_SAD16N_X5 = DF_SAD_X5 + 7,  ///< 16NxM SAD
+
+  DF_TOTAL_FUNCTIONS_X5 = DF_SAD16N_X5 + 1
 };
 
 /// motion vector predictor direction used in AMVP
@@ -758,7 +747,9 @@ class ChromaCbfs {
 struct LoopFilterParam {
   int8_t qp[3];
   uint8_t bs;
-  uint8_t sideMaxFiltLength;
+  uint8_t sideMaxFiltLengthP : 3;
+  uint8_t sideMaxFiltLengthQ : 3;
+  uint8_t edge : 2;
   uint8_t flags;
 
   bool filterEdge(ChannelType chType) const { return (flags >> chType) & 1; }
@@ -836,8 +827,6 @@ class Exception : public std::exception {
 #else
 #  define CHECKD(c, x)
 #endif  // _DEBUG
-
-#define CHECKD_NULLPTR(_ptr) CHECKD(!(_ptr), "Accessing an empty pointer!")
 
 // ---------------------------------------------------------------------------
 // static vector

@@ -149,17 +149,17 @@ class HLSyntaxReader : public VLCReader {
   void parseScalingListAps(APS* pcAPS);
   void parseVUI(VUI* pcVUI, SPS* pcSPS);
   void parseConstraintInfo(ConstraintInfo* cinfo);
-#if JVET_Q0786_PTL_only
   void parseProfileTierLevel(ProfileTierLevel* ptl, bool profileTierPresentFlag, int maxNumSubLayersMinus1);
-#else
-  void parseProfileTierLevel(ProfileTierLevel* ptl, int maxNumSubLayersMinus1);
-#endif
   void parseOlsHrdParameters(GeneralHrdParams* generalHrd, OlsHrdParams* olsHrd, uint32_t firstSubLayer,
-                             uint32_t tempLevelHigh);
+                            uint32_t tempLevelHigh);
   void parseGeneralHrdParameters(GeneralHrdParams* generalHrd);
   void parsePictureHeader(PicHeader* picHeader, ParameterSetManager* parameterSetManager, bool readRbspTrailingBits);
   void parseSliceHeader(Slice* pcSlice, PicHeader* parsedPicHeader, ParameterSetManager* parameterSetManager,
                         const int prevTid0POC, Picture* parsePic);
+  void checkPictureHeaderInSliceHeader(PPS* pps, SPS* sps);
+  void parseSliceHeaderChrmoaQp(Slice* pcSlice, PPS* pps, SPS* sps, int numValidComp);
+  void parseSliceHeaderDeblockControlInfo(Slice* pcSlice, PicHeader* picHeader, PPS* pps);
+
   template <typename HeaderT>
   void parsePicOrSliceHeaderRPL(HeaderT* header, const SPS* sps, const PPS* pps);
   void checkAlfNaluTidAndPicTid(Slice* pcSlice, PicHeader* picHeader, ParameterSetManager* parameterSetManager);
@@ -175,9 +175,7 @@ class HLSyntaxReader : public VLCReader {
   void parseReshaper(SliceReshapeInfo& sliceReshaperInfo, const SPS* pcSPS, const bool isIntra);
   void alfFilter(AlfSliceParam& alfSliceParam, const bool isChroma, const int altIdx);
   void ccAlfFilter(Slice* pcSlice);
-#if JVET_P0117_PTL_SCALABILITY
   void dpb_parameters(int maxSubLayersMinus1, bool subLayerInfoFlag, SPS* pcSPS);
-#endif
   void parseExtraPHBitsStruct(SPS* sps, int numBytes);
   void parseExtraSHBitsStruct(SPS* sps, int numBytes);
 

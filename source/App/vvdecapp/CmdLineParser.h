@@ -46,10 +46,10 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-#include <iostream>
 #include <stdio.h>
 #include <string.h>
+#include <string>
+#include <iostream>
 
 #include "vvdec/vvdec.h"
 
@@ -87,7 +87,7 @@ class CmdLineParser {
                  "\t\t [--loops,-L  <int>         ] : number of decoder loops (default: 0, -1 endless)\n"
                  "\t\t [--verbosity,-v  <int>     ] : verbosity level (0: silent, 1: error, 2: warning, 3: info, 4: "
                  "notice: 5, verbose, 6: debug) (default: "
-              << (int)rcParams.m_eLogLevel
+              << static_cast<int>(rcParams.m_eLogLevel)
               << ")\n"
                  "\t\t [--help,-h                 ] : show help\n"
                  "\n";
@@ -106,7 +106,8 @@ class CmdLineParser {
         i_arg++;
         int iLogLevel = atoi(argv[i_arg++]);
         if (iLogLevel < 0) iLogLevel = 0;
-        if (iLogLevel > (int)vvdec::LogLevel::LL_DETAILS) iLogLevel = (int)vvdec::LogLevel::LL_DETAILS;
+        if (iLogLevel > (static_cast<int>(vvdec::LogLevel::LL_DETAILS)))
+          iLogLevel = static_cast<int>(vvdec::LogLevel::LL_DETAILS);
         rcParams.m_eLogLevel = (vvdec::LogLevel)iLogLevel;
 
         if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) {
@@ -136,8 +137,8 @@ class CmdLineParser {
             default:
               cll = "UNKNOWN";
               break;
-          };
-          fprintf(stdout, "[verbosity] : %d - %s\n", (int)rcParams.m_eLogLevel, cll.c_str());
+          }
+          fprintf(stdout, "[verbosity] : %d - %s\n", static_cast<int>(rcParams.m_eLogLevel), cll.c_str());
         }
       } else if ((!strcmp((const char*)argv[i_arg], "-h")) || !strcmp((const char*)argv[i_arg], "--help")) {
         i_arg++;
@@ -151,14 +152,12 @@ class CmdLineParser {
     i_arg = 1;
     while (i_arg < argc) {
       if ((!strcmp((const char*)argv[i_arg], "-b")) ||
-          !strcmp((const char*)argv[i_arg], "--bitstream")) /* In: input-file */
-      {
+          !strcmp((const char*)argv[i_arg], "--bitstream")) { /* In: input-file */
         i_arg++;
         if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[bitstream] input-file:    %s\n", argv[i_arg]);
         rcBitstreamFile = argv[i_arg++];
       } else if ((!strcmp((const char*)argv[i_arg], "-o")) ||
-                 !strcmp((const char*)argv[i_arg], "--output")) /* Out: bitstream-file */
-      {
+                 !strcmp((const char*)argv[i_arg], "--output")) { /* Out: bitstream-file */
         i_arg++;
         if (i_arg < argc && strlen(argv[i_arg]) > 0) {
           if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[output] yuv-file:    %s\n", argv[i_arg]);
@@ -178,6 +177,9 @@ class CmdLineParser {
         int iThreads = atoi(argv[i_arg++]);
         if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[parsedelay] : %d\n", iThreads);
         rcParams.m_iParseThreads = iThreads;
+      } else if (!strcmp((const char*)argv[i_arg], "-FrameThreads")) {
+        i_arg++;
+        rcParams.m_iFrameThreads = atoi(argv[i_arg++]);
       } else if ((!strcmp((const char*)argv[i_arg], "-dph")) ||
                  !strcmp((const char*)argv[i_arg], "--SEIDecodedPictureHash")) {
         i_arg++;

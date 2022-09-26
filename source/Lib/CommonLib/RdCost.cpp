@@ -55,11 +55,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 //! \ingroup CommonLib
 //! \{
 
-FpDistFunc RdCost::m_afpDistortFunc[DF_TOTAL_FUNCTIONS] = {
-    nullptr,
-};
-
-RdCost::RdCost() {
+void RdCost::initRdCost(int bitDepth) {
   m_afpDistortFunc[DF_SAD] = RdCost::xGetSAD;
   m_afpDistortFunc[DF_SAD2] = RdCost::xGetSAD;
   m_afpDistortFunc[DF_SAD4] = RdCost::xGetSAD4;
@@ -69,12 +65,17 @@ RdCost::RdCost() {
   m_afpDistortFunc[DF_SAD64] = RdCost::xGetSAD64;
   m_afpDistortFunc[DF_SAD16N] = RdCost::xGetSAD16N;
 
-#if ENABLE_SIMD_OPT_DIST
-#  ifdef TARGET_SIMD_X86
-  initRdCostX86();
-#  endif
-#endif
+  m_afpDistortFuncX5[DF_SAD_X5] = RdCost::xGetSADX5<0, false>;
+  m_afpDistortFuncX5[DF_SAD2_X5] = RdCost::xGetSADX5<2, false>;
+  m_afpDistortFuncX5[DF_SAD4_X5] = RdCost::xGetSADX5<4, false>;
+  m_afpDistortFuncX5[DF_SAD8_X5] = RdCost::xGetSADX5<8, false>;
+  m_afpDistortFuncX5[DF_SAD16_X5] = RdCost::xGetSADX5<16, false>;
+  m_afpDistortFuncX5[DF_SAD32_X5] = RdCost::xGetSADX5<32, false>;
+  m_afpDistortFuncX5[DF_SAD64_X5] = RdCost::xGetSADX5<64, false>;
+  m_afpDistortFuncX5[DF_SAD16N_X5] = RdCost::xGetSADX5<0, true>;
 }
+
+RdCost::RdCost() {}
 
 RdCost::~RdCost() {}
 
@@ -95,6 +96,7 @@ void RdCost::setDistParam(DistParam& rcDP, const Pel* pOrg, const Pel* piRefY, p
   rcDP.subShift = subShiftMode;
 
   rcDP.distFunc = m_afpDistortFunc[DF_SAD + getLog2(width)];
+  rcDP.distFuncX5 = m_afpDistortFuncX5[DF_SAD_X5 + getLog2(width)];
 }
 
 // ====================================================================================================================
@@ -396,6 +398,67 @@ Distortion RdCost::xGetSAD64(const DistParam& rcDtParam) {
 
   uiSum <<= iSubShift;
   return (uiSum >> DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth));
+}
+
+template <int iWidth, bool use16N>
+void RdCost::xGetSADX5(const DistParam& rcDtParam, Distortion* cost, bool isCalCentrePos) {
+  DistParam rcDtParamTmp0 = rcDtParam;
+  DistParam rcDtParamTmp1 = rcDtParam;
+  rcDtParamTmp1.org.buf += 1;
+  rcDtParamTmp1.cur.buf -= 1;
+  DistParam rcDtParamTmp2 = rcDtParam;
+  rcDtParamTmp2.org.buf += 2;
+  rcDtParamTmp2.cur.buf -= 2;
+  DistParam rcDtParamTmp3 = rcDtParam;
+  rcDtParamTmp3.org.buf += 3;
+  rcDtParamTmp3.cur.buf -= 3;
+  DistParam rcDtParamTmp4 = rcDtParam;
+  rcDtParamTmp4.org.buf += 4;
+  rcDtParamTmp4.cur.buf -= 4;
+
+  if (use16N) {
+    cost[0] = (RdCost::xGetSAD16N(rcDtParamTmp0)) >> 1;
+    cost[1] = (RdCost::xGetSAD16N(rcDtParamTmp1)) >> 1;
+    if (isCalCentrePos) cost[2] = (RdCost::xGetSAD16N(rcDtParamTmp2)) >> 1;
+    cost[3] = (RdCost::xGetSAD16N(rcDtParamTmp3)) >> 1;
+    cost[4] = (RdCost::xGetSAD16N(rcDtParamTmp4)) >> 1;
+  } else if (iWidth < 4) {
+    cost[0] = (RdCost::xGetSAD(rcDtParamTmp0)) >> 1;
+    cost[1] = (RdCost::xGetSAD(rcDtParamTmp1)) >> 1;
+    if (isCalCentrePos) cost[2] = (RdCost::xGetSAD(rcDtParamTmp2)) >> 1;
+    cost[3] = (RdCost::xGetSAD(rcDtParamTmp3)) >> 1;
+    cost[4] = (RdCost::xGetSAD(rcDtParamTmp4)) >> 1;
+  } else if (iWidth == 4) {
+    cost[0] = (RdCost::xGetSAD4(rcDtParamTmp0)) >> 1;
+    cost[1] = (RdCost::xGetSAD4(rcDtParamTmp1)) >> 1;
+    if (isCalCentrePos) cost[2] = (RdCost::xGetSAD4(rcDtParamTmp2)) >> 1;
+    cost[3] = (RdCost::xGetSAD4(rcDtParamTmp3)) >> 1;
+    cost[4] = (RdCost::xGetSAD4(rcDtParamTmp4)) >> 1;
+  } else if (iWidth == 8) {
+    cost[0] = (RdCost::xGetSAD8(rcDtParamTmp0)) >> 1;
+    cost[1] = (RdCost::xGetSAD8(rcDtParamTmp1)) >> 1;
+    if (isCalCentrePos) cost[2] = (RdCost::xGetSAD8(rcDtParamTmp2)) >> 1;
+    cost[3] = (RdCost::xGetSAD8(rcDtParamTmp3)) >> 1;
+    cost[4] = (RdCost::xGetSAD8(rcDtParamTmp4)) >> 1;
+  } else if (iWidth == 16) {
+    cost[0] = (RdCost::xGetSAD16(rcDtParamTmp0)) >> 1;
+    cost[1] = (RdCost::xGetSAD16(rcDtParamTmp1)) >> 1;
+    if (isCalCentrePos) cost[2] = (RdCost::xGetSAD16(rcDtParamTmp2)) >> 1;
+    cost[3] = (RdCost::xGetSAD16(rcDtParamTmp3)) >> 1;
+    cost[4] = (RdCost::xGetSAD16(rcDtParamTmp4)) >> 1;
+  } else if (iWidth == 32) {
+    cost[0] = (RdCost::xGetSAD32(rcDtParamTmp0)) >> 1;
+    cost[1] = (RdCost::xGetSAD32(rcDtParamTmp1)) >> 1;
+    if (isCalCentrePos) cost[2] = (RdCost::xGetSAD32(rcDtParamTmp2)) >> 1;
+    cost[3] = (RdCost::xGetSAD32(rcDtParamTmp3)) >> 1;
+    cost[4] = (RdCost::xGetSAD32(rcDtParamTmp4)) >> 1;
+  } else if (iWidth == 64) {
+    cost[0] = (RdCost::xGetSAD64(rcDtParamTmp0)) >> 1;
+    cost[1] = (RdCost::xGetSAD64(rcDtParamTmp1)) >> 1;
+    if (isCalCentrePos) cost[2] = (RdCost::xGetSAD64(rcDtParamTmp2)) >> 1;
+    cost[3] = (RdCost::xGetSAD64(rcDtParamTmp3)) >> 1;
+    cost[4] = (RdCost::xGetSAD64(rcDtParamTmp4)) >> 1;
+  }
 }
 
 //! \}

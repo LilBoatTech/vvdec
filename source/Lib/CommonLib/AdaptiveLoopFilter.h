@@ -70,7 +70,7 @@ enum Direction { HOR, VER, DIAG0, DIAG1, NUM_DIRECTIONS };
 
 class AdaptiveLoopFilter {
  public:
-  static inline int clipALF(const int clip, const short ref, const short val0, const short val1) {
+  static inline int clipALF(const int clip, const int16_t ref, const int16_t val0, const int16_t val1) {
     return Clip3<int>(-clip, +clip, val0 - ref) + Clip3<int>(-clip, +clip, val1 - ref);
   }
 
@@ -87,12 +87,23 @@ class AdaptiveLoopFilter {
   void create(const PicHeader* picHeader, const SPS* sps, const PPS* pps, int numThreads);
   void destroy();
 
-  template <AlfFilterType filtTypeCcAlf>
+  template <typename TSrcDst>
   static void filterBlkCcAlf(const PelBuf& dstBuf, const CPelUnitBuf& recSrc, const Area& blkDst, const Area& blkSrc,
                              const ComponentID compId, const int16_t* filterCoeff, const ClpRngs& clpRngs,
                              CodingStructure& cs, int vbCTUHeight, int vbPos);
 
-  static void preparePic(CodingStructure& cs);
+  template <typename TSrcDst>
+  static void filterBlkCcAlfBoth(const PelBuf& dstBufCb, const PelBuf& dstBufCr, const CPelUnitBuf& recSrcY,
+                                 const Area& blkDst, const Area& blkSrc, const int16_t* filterCoeffCb,
+                                 const int16_t* filterCoeffCr, const ClpRngs& clpRngs, CodingStructure& cs,
+                                 int vbCTUHeight, int vbPos);
+
+  template <AlfFilterType filtType, typename TSrcDst>
+  static void filterBlk(const AlfClassifier* classifier, const PelUnitBuf& recDst, const CPelUnitBuf& recSrc,
+                        const Area& blk, const ComponentID compId, const int16_t* filterSet, const int16_t* fClipSet,
+                        const ClpRng& clpRng, const CodingStructure& cs, int vbCTUHeight, int vbPos);
+
+  static void preparePic(CodingStructure& cs, PelStorage* alfBuf);
   static void prepareCTU(CodingStructure& cs, unsigned col, unsigned line);
   void processCTU(CodingStructure& cs, unsigned col, unsigned line, int tid = 0,
                   const ChannelType chType = MAX_NUM_CHANNEL_TYPE);
@@ -102,26 +113,35 @@ class AdaptiveLoopFilter {
   static void reconstructCoeff(AlfSliceParam& alfSliceParam, ChannelType channel,
                                const int inputBitDepth[MAX_NUM_CHANNEL_TYPE]);
 
+  void initAdaptiveLoopFilter(int bitDepth);
+#ifdef TARGET_SIMD_X86
+  void initAdaptiveLoopFilterX86(int bitDepth);
+  template <X86_VEXT vext>
+  void _initAdaptiveLoopFilterX86(int bitDepth);
+#endif
+
  protected:
   static void getCompatibleBuffer(const CodingStructure& cs, const CPelUnitBuf& srcBuf, PelStorage& destBuf);
 
+  template <typename TSrc>
   static void deriveClassificationBlk(AlfClassifier* classifier, const CPelBuf& srcLuma, const Area& blk,
                                       const int shift, int vbCTUHeight, int vbPos);
   void (*m_deriveClassificationBlk)(AlfClassifier* classifier, const CPelBuf& srcLuma, const Area& blk, const int shift,
                                     int vbCTUHeight, int vbPos);
   void deriveClassification(AlfClassifier* classifier, const CPelBuf& srcLuma, const Area& blk) const;
 
-  void filterCTU(const CPelUnitBuf& srcBuf, const PelUnitBuf& dstBuf, const uint8_t ctuEnableFlag[3],
-                 const uint8_t ctuAlternativeData[2], const ClpRngs& clpRngs, const ChannelType chType,
-                 CodingStructure& cs, int ctuIdx, Position ctuPos, int tid);
-  template <AlfFilterType filtType>
-  static void filterBlk(const AlfClassifier* classifier, const PelUnitBuf& recDst, const CPelUnitBuf& recSrc,
-                        const Area& blk, const ComponentID compId, const short* filterSet, const short* fClipSet,
-                        const ClpRng& clpRng, const CodingStructure& cs, int vbCTUHeight, int vbPos);
+  void filterCTU(const CPelUnitBuf& srcBuf, const PelUnitBuf& dstBuf, const CtuAlfData& ctuAlfData,
+                 const ClpRngs& clpRngs, const ChannelType chType, CodingStructure& cs, int ctuIdx, Position ctuPos,
+                 int tid);
 
   void (*m_filterCcAlf)(const PelBuf& dstBuf, const CPelUnitBuf& recSrc, const Area& blkDst, const Area& blkSrc,
                         const ComponentID compId, const int16_t* filterCoeff, const ClpRngs& clpRngs,
                         CodingStructure& cs, int vbCTUHeight, int vbPos);
+
+  void (*m_filterCcAlfBoth)(const PelBuf& dstBufCb, const PelBuf& dstBufCr, const CPelUnitBuf& recSrcY,
+                            const Area& blkDst, const Area& blkSrc, const int16_t* filterCoeffCb,
+                            const int16_t* filterCoeffCr, const ClpRngs& clpRngs, CodingStructure& cs, int vbCTUHeight,
+                            int vbPos);
 
   void (*m_filter5x5Blk)(const AlfClassifier* classifier, const PelUnitBuf& recDst, const CPelUnitBuf& recSrc,
                          const Area& blk, const ComponentID compId, const short* filterSet, const short* fClipSet,
@@ -129,12 +149,6 @@ class AdaptiveLoopFilter {
   void (*m_filter7x7Blk)(const AlfClassifier* classifier, const PelUnitBuf& recDst, const CPelUnitBuf& recSrc,
                          const Area& blk, const ComponentID compId, const short* filterSet, const short* fClipSet,
                          const ClpRng& clpRng, const CodingStructure& cs, int vbCTUHeight, int vbPos);
-
-#ifdef TARGET_SIMD_X86
-  void initAdaptiveLoopFilterX86();
-  template <X86_VEXT vext>
-  void _initAdaptiveLoopFilterX86();
-#endif
 
  protected:
   bool isCrossedByVirtualBoundaries(const CodingStructure& cs, const Area& pos, bool& clipTop, bool& clipBottom,

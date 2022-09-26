@@ -63,81 +63,64 @@ static constexpr int MASK_0 = ~(~0u << PROB_BITS_0) << (PROB_BITS - PROB_BITS_0)
 static constexpr int MASK_1 = ~(~0u << PROB_BITS_1) << (PROB_BITS - PROB_BITS_1);
 static constexpr uint8_t DWS = 8;  // 0x47 Default window sizes
 
-struct BinFracBits {
-  uint32_t intBits[2];
-};
+static constexpr uint8_t m_RenormTable_32[32] = {6, 5, 4, 4, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2,
+                                                 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
-class ProbModelTables {
- protected:
-  static const uint8_t m_RenormTable_32[32];  // Std         MP   MPI
-};
-
-class BinProbModel : public ProbModelTables {
+class BinProbModel {
  public:
   BinProbModel() {
     uint16_t half = 1 << (PROB_BITS - 1);
     m_state[0] = half;
     m_state[1] = half;
-    m_rate = DWS;
+    m_rate0 = 0;
+    m_rate1 = DWS;
+    m_val0[0] = ((0xFFFFU) >> (16 - m_rate0));
+    m_val0[1] = ((0xFFFFU) >> (16 - PROB_BITS));
+    m_val1[0] = ((0xFFFFU) >> (16 - m_rate1));
+    m_val1[1] = ((0xFFFFU) >> (16 - PROB_BITS));
   }
   ~BinProbModel() {}
 
  public:
   void init(int qp, int initId);
   void update(unsigned bin) {
-    int rate0 = m_rate >> 4;
-    int rate1 = m_rate & 15;
-
-    m_state[0] -= (m_state[0] >> rate0) & MASK_0;
-    m_state[1] -= (m_state[1] >> rate1) & MASK_1;
-
-    m_state[0] += ((-static_cast<int>(bin) & 0x7fffu) >> rate0) & MASK_0;
-    m_state[1] += ((-static_cast<int>(bin) & 0x7fffu) >> rate1) & MASK_1;
-
-    // if (bin)
-    //{
-    //  m_state[0] += (0x7fffu >> rate0) & MASK_0;
-    //  m_state[1] += (0x7fffu >> rate1) & MASK_1;
-    //}
+    //      m_state[0] -= (m_state[0] >> m_rate0) & MASK_0;
+    //      m_state[1] -= (m_state[1] >> m_rate1) & MASK_1;
+    //      m_state[0] += ( ( bin ? 0x7fffu : 0x0u ) >> m_rate0 ) & MASK_0;
+    //      m_state[1] += ( ( bin ? 0x7fffu : 0x0u ) >> m_rate1 ) & MASK_1;
+    int val0 = m_val0[bin] - m_state[0];
+    int val1 = m_val1[bin] - m_state[1];
+    val0 = val0 >> m_rate0;
+    val1 = val1 >> m_rate1;
+    m_state[0] += val0 << 5;
+    m_state[1] += val1 << 1;
   }
   void setLog2WindowSize(uint8_t log2WindowSize) {
-    int rate0 = 2 + ((log2WindowSize >> 2) & 3);
-    int rate1 = 3 + rate0 + (log2WindowSize & 3);
-    m_rate = 16 * rate0 + rate1;
-    CHECK(rate1 > 9, "Second window size is too large!");
+    m_rate0 = 2 + ((log2WindowSize >> 2) & 3);
+    m_rate1 = 3 + m_rate0 + (log2WindowSize & 3);
+    CHECK(m_rate1 > 9, "Second window size is too large!");
+    m_rate0 += 5;
+    m_rate1 += 1;
+    m_val0[0] = ((0xFFFFU) >> (16 - m_rate0));
+    m_val1[0] = ((0xFFFFU) >> (16 - m_rate1));
   }
 
  public:
-  uint8_t state() const { return (m_state[0] + m_state[1]) >> 8; }
-  uint8_t mps() const { return state() >> 7; }
-  uint8_t lps(unsigned range) const {
-    uint16_t q = state();
-    if (q & 0x80) q = q ^ 0xff;
-    return ((q >> 2) * (range >> 5) >> 1) + 4;
-  }
   void lpsmps(unsigned range, unsigned& lps, unsigned& bin) const {
-    const uint8_t q = state();
+    const uint16_t q = (m_state[0] + m_state[1]) >> 8;
     bin = q >> 7;
 
-    lps = ((((((q ^ 0xff) & -static_cast<int>(bin)) | (q & ~(-static_cast<int>(bin)))) >> 2) * (range >> 5)) >> 1) + 4;
-
-    // if( q & 0x80 )
-    //{
-    //  CHECK( lps != ( ( ( ( q ^ 0xff ) >> 2 ) * ( range >> 5 ) >> 1 ) + 4 ), "" );
-    //  lps = ( ( ( q ^ 0xff ) >> 2 ) * ( range >> 5 ) >> 1 ) + 4;
-    //}
-    // else
-    //{
-    //  CHECK( lps != ( ( ( q >> 2 ) * ( range >> 5 ) >> 1 ) + 4 ), "" );
-    //  lps = ( ( q >> 2 ) * ( range >> 5 ) >> 1 ) + 4;
-    //}
+    lps = ((((q ^ (-static_cast<int>(bin) & 0xff)) >> 2) * (range >> 5)) >> 1) + 4;
   }
   static uint8_t getRenormBitsLPS(unsigned LPS) { return m_RenormTable_32[LPS >> 3]; }
   static uint8_t getRenormBitsRange(unsigned range) { return 1; }
 
  private:
   uint16_t m_state[2];
-  uint8_t m_rate;
+  uint16_t m_rate0;
+  uint16_t m_rate1;
+  uint16_t m_val0[2];
+  uint16_t m_val1[2];
 };
 
 class CtxSet {

@@ -61,16 +61,17 @@ class PredictorMIP {
  public:
   PredictorMIP();
   void deriveBoundaryData(const CPelBuf& src, const Area& block, const int bitDepth);
-  void getPrediction(int* const result, const int modeIdx, const bool transpose, const int bitDepth);
+  void getPrediction(int16_t* const result, const int modeIdx, const bool transpose, const int bitDepth);
+  void initPredictorMIP(int betdepth);
 
  private:
-  int m_reducedBoundary[MIP_MAX_INPUT_SIZE];            // downsampled             boundary of a block
-  int m_reducedBoundaryTransposed[MIP_MAX_INPUT_SIZE];  // downsampled, transposed boundary of a block
+  int16_t m_reducedBoundary[MIP_MAX_INPUT_SIZE];            // downsampled             boundary of a block
+  int16_t m_reducedBoundaryTransposed[MIP_MAX_INPUT_SIZE];  // downsampled, transposed boundary of a block
 
   int m_inputOffset;
   int m_inputOffsetTransp;
-  int m_refSamplesTop[MIP_MAX_WIDTH];    // top  reference samples for upsampling
-  int m_refSamplesLeft[MIP_MAX_HEIGHT];  // left reference samples for upsampling
+  int16_t m_refSamplesTop[MIP_MAX_WIDTH];    // top  reference samples for upsampling
+  int16_t m_refSamplesLeft[MIP_MAX_HEIGHT];  // left reference samples for upsampling
   Size m_blockSize;
   int m_sizeId;
   int m_reducedBdrySize;
@@ -80,20 +81,26 @@ class PredictorMIP {
 
   void initPredBlockParams(const Size& block);
 
-  static void boundaryDownsampling1D(int* reducedDst, const int* const fullSrc, const SizeType srcLen,
+  static void boundaryDownsampling1D(int16_t* reducedDst, const int16_t* const fullSrc, const SizeType srcLen,
                                      const SizeType dstLen);
 
-  void predictionUpsampling(int* const dst, const int* const src) const;
-  static void predictionUpsampling1D(int* const dst, const int* const src, const int* const bndry,
+  void predictionUpsampling(int16_t* const dst, const int16_t* const src) const;
+  static void predictionUpsampling1D(int16_t* const dst, const int16_t* const src, const int16_t* const bndry,
                                      const SizeType srcSizeUpsmpDim, const SizeType srcSizeOrthDim,
                                      const SizeType srcStep, const SizeType srcStride, const SizeType dstStep,
                                      const SizeType dstStride, const SizeType bndryStep,
                                      const unsigned int upsmpFactor);
 
+  void (*upsampling1DVer)(int16_t* const dst, const int16_t* const src, const int16_t* const bndry, const int outWidth,
+                          const int srcStep, int inHeight, unsigned upsmpFactor);
+  void (*upsampling1DHor)(int16_t* const dst, const int16_t* const src, const int16_t* const bndry, const int dstStride,
+                          const int bndryStep, int predPredSize, unsigned upsmpFactor);
+
   const uint8_t* getMatrixData(const int modeIdx) const;
 
-  void computeReducedPred(int* const result, const int* const input, const uint8_t* matrix, const bool transpose,
-                          const int bitDepth);
+  void (*computeReducedPred)(int16_t* const result, const int16_t* const input, const uint8_t* matrix,
+                             const bool transpose, const int bitDepth, const int inputSize, const int inputOffset,
+                             const int reducedPredSize, const int sizeId);
 };
 }  // namespace Mip
 
@@ -102,20 +109,18 @@ class MatrixIntraPrediction {
   MatrixIntraPrediction();
 
   Mip::PredictorMIP m_predictorMip;
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
+
   void prepareInputForPred(const CPelBuf& src, const Area& puArea, const int bitDepth, const ComponentID compId);
+
   void predBlock(const Size& puSize, const int modeIdx, PelBuf& dst, const bool transpose, const int bitDepth,
                  const ComponentID compId);
-#else
-  void prepareInputForPred(const CPelBuf& src, const Area& puArea, const int bitDepth);
-  void predBlock(const Size& puSize, const int modeIdx, PelBuf& dst, const bool transpose, const int bitDepth);
-#endif
- private:
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
-  ComponentID m_component = MAX_NUM_COMPONENT;
-#endif
 
-  int m_mipResult[MIP_MAX_WIDTH * MIP_MAX_HEIGHT];
+  void initMatrixIntraPrediction(int betdepth) { m_predictorMip.initPredictorMIP(betdepth); }
+
+ private:
+  ComponentID m_component = MAX_NUM_COMPONENT;
+
+  int16_t m_mipResult[MIP_MAX_WIDTH * MIP_MAX_HEIGHT];
 };
 
 #endif  //__MATRIXINTRAPPREDICTION__

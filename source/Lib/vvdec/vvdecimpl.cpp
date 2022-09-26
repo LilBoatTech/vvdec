@@ -76,7 +76,7 @@ int VVDecImpl::init(const VVDecParameter& rcVVDecParameter) {
   initROM();
 
   // create decoder class
-  m_cDecLib.create(rcVVDecParameter.m_iThreads, rcVVDecParameter.m_iParseThreads);
+  m_cDecLib.create(rcVVDecParameter.m_iThreads, rcVVDecParameter.m_iParseThreads, rcVVDecParameter.m_iFrameThreads);
 
   g_verbosity = MsgLevel(rcVVDecParameter.m_eLogLevel);
 
@@ -258,7 +258,7 @@ int VVDecImpl::decode(AccessUnit& rcAccessUnit, Frame** ppcFrame) {
 
           InputBitstream& rBitstream = nalu.getBitstream();
           // perform anti-emulation prevention
-          if (0 != xConvertPayloadToRBSP(nalUnit, &rBitstream, (nalUnit[0] & 64) == 0)) {
+          if (nalUnit.empty() || 0 != xConvertPayloadToRBSP(nalUnit, &rBitstream, (nalUnit[0] & 64) == 0)) {
             return VVDEC_ERR_UNSPECIFIED;
           }
 
@@ -597,7 +597,7 @@ NalType VVDecImpl::getNalUnitType(AccessUnit& rcAccessUnit) {
     }
   }
 
-  if (found) {
+  if (found && iOffset < rcAccessUnit.m_iBufSize) {
     unsigned char uc = pcBuf[iOffset];
     int nalUnitType = ((uc >> 3) & 0x1F);
     eNalType = (NalType)nalUnitType;
@@ -800,10 +800,12 @@ int VVDecImpl::xAddPicture(Picture* pcPic) {
       uiBitDepth = std::max((uint32_t)bitDepths.recon[c], uiBitDepth);
     }
 
-    m_bCreateNewPicBuf =
-        (uiBitDepth == 8)
-            ? true
-            : false;  // for 8bit output we need to copy the lib picture from unsigned short into unsigned char buffer
+#if ADAPTIVE_BIT_DEPTH
+    m_bCreateNewPicBuf = false;
+#else
+    // for 8bit output we need to copy the lib picture from unsigned short into unsigned char buffer
+    m_bCreateNewPicBuf = (uiBitDepth == 8) ? true : false;
+#endif
   }
 
   // create a brand new picture object
@@ -826,8 +828,9 @@ int VVDecImpl::xAddPicture(Picture* pcPic) {
       const unsigned char* pucOrigin = (const unsigned char*)area.buf;
 
       copyComp(pucOrigin + planeOffset,
-               cFrame.m_cComponent[VVC_CT_Y].m_pucBuffer + cFrame.m_cComponent[comp].m_uiByteOffset, area.width,
-               area.height, area.stride << 1, cFrame.m_cComponent[comp].m_iStride, uiBytesPerSample);
+               cFrame.m_cComponent[VVC_CT_Y].m_pucBuffer + cFrame.m_cComponent[comp].m_uiByteOffset,
+               cFrame.m_cComponent[comp].m_uiWidth, cFrame.m_cComponent[comp].m_uiHeight, area.stride << 1,
+               cFrame.m_cComponent[comp].m_iStride, uiBytesPerSample);
     }
   } else {
     // use internal lib picture memory
@@ -836,13 +839,18 @@ int VVDecImpl::xAddPicture(Picture* pcPic) {
       const uint32_t csx = ::getComponentScaleX(compID, cPicBuf.chromaFormat);
       const uint32_t csy = ::getComponentScaleY(compID, cPicBuf.chromaFormat);
       const CPelBuf area = cPicBuf.get(compID);
-      // unsigned int wordSize         = bitDepths.recon[0] > 8 ? 2 : 1;
-      const ptrdiff_t planeOffset = (confLeft >> csx) + (confTop >> csy) * area.stride;
 
-      // unsigned char* pucOrigin   = (unsigned char*)area.bufAt (0, 0).ptr;
-      Pel* pucOrigin = (Pel*)area.buf;
-
+#if ADAPTIVE_BIT_DEPTH
+      unsigned int uiBytesPerSample = bitDepths.recon[0] > 8 ? 2 : 1;
+      const ptrdiff_t planeOffset =
+          (confLeft >> csx) * uiBytesPerSample + (confTop >> csy) * area.stride * uiBytesPerSample;
+      unsigned char* pucOrigin = (unsigned char*)area.buf;
       cFrame.m_cComponent[comp].m_pucBuffer = (unsigned char*)(pucOrigin + planeOffset);
+#else
+      const ptrdiff_t planeOffset = (confLeft >> csx) + (confTop >> csy) * area.stride;
+      const Pel* pucOrigin = reinterpret_cast<const Pel*>(area.buf);
+      cFrame.m_cComponent[comp].m_pucBuffer = (unsigned char*)(pucOrigin + planeOffset);
+#endif
     }
     m_pcLibPictureList.push_back(pcPic);
   }

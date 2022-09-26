@@ -70,7 +70,7 @@ typedef void InvTrans(const TCoeff *, TCoeff *, int, int, int, int, const TCoeff
 // ====================================================================================================================
 
 /// transform and quantization class
-class TrQuant : Quant {
+class TrQuant : public Quant {
  public:
   TrQuant();
   ~TrQuant();
@@ -78,8 +78,6 @@ class TrQuant : Quant {
   // initialize class
   void init(Slice *slice);
   void getTrTypes(const TransformUnit &tu, const ComponentID compID, int &trTypeHor, int &trTypeVer);
-
-  void invLfnstNxN(int *src, int *dst, const uint32_t mode, const uint32_t index, const uint32_t size, int zeroOutSize);
 
   uint32_t getLFNSTIntraMode(int wideAngPredMode);
   bool getTransposeFlag(uint32_t intraMode);
@@ -119,12 +117,6 @@ class TrQuant : Quant {
   // inverse skipping transform
   void xITransformSkip(const CCoeffBuf &plCoef, PelBuf &pResidual, const TransformUnit &tu,
                        const ComponentID &component);
-
-#ifdef TARGET_SIMD_X86
-  template <X86_VEXT vext>
-  void _initTrQuantX86();
-  void initTrQuantX86();
-#endif
 };  // END CLASS DEFINITION TrQuant
 
 //! \}

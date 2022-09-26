@@ -72,14 +72,15 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  std::cout << "Fraunhofer VVC Decoder " << cAppname << " version: " << VVDEC_VERSION << std::endl;
+  // std::cout << "Fraunhofer VVC Decoder " << cAppname  << " version: " << VVDEC_VERSION << std::endl;
 
   std::string cBitstreamFile = "";
   std::string cOutputFile = "";
   int iMaxFrames = -1;
   int iLoopCount = 1;
   vvdec::VVDecParameter cVVDecParameter;
-
+  auto finalStart = std::chrono::steady_clock::now();
+  unsigned int frameCount = 0;
   cVVDecParameter.m_eLogLevel = vvdec::LogLevel::LL_INFO;
 
   if (argc > 1 && (!strcmp((const char*)argv[1], "--help") || !strcmp((const char*)argv[1], "-help"))) {
@@ -192,7 +193,6 @@ int main(int argc, char* argv[]) {
     int iComprPics = 0;
     unsigned int uiFrames = 0;
     unsigned int uiFramesTmp = 0;
-    unsigned int uiBitrate = 0;
 
     bool bTunedIn = false;
     unsigned int uiNoFrameAfterTuneInCount = 0;
@@ -288,10 +288,7 @@ int main(int argc, char* argv[]) {
 
           uiFrames++;
           uiFramesTmp++;
-
-          if (pcFrame->m_pcPicExtendedAttributes) {
-            uiBitrate += pcFrame->m_pcPicExtendedAttributes->m_uiBits;
-          }
+          frameCount++;
 
           if (cRecFile.is_open()) {
             if (0 != writeYUVToFile(outStream, pcFrame)) {
@@ -333,7 +330,7 @@ int main(int argc, char* argv[]) {
 
       if (NULL != pcFrame) {
         uiFrames++;
-
+        frameCount++;
         if (cRecFile.is_open()) {
           if (0 != writeYUVToFile(outStream, pcFrame)) {
             std::cout << "vvdecapp [error]: write of rec. yuv failed for picture seq. " << pcFrame->m_uiSequenceNumber
@@ -417,7 +414,10 @@ int main(int argc, char* argv[]) {
   }
 
   cInFile.close();
-
+  auto finalEnd = std::chrono::steady_clock::now();
+  double dTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>((finalEnd) - (finalStart)).count();
+  std::cout << "Decode " << frameCount << " Frames within " << dTimeMs << " ms, fps = " << frameCount * 1000.0 / dTimeMs
+            << std::endl;
   if (iLoopCount > 1) {
     // print average fps over all decoder loops
     double dFpsSum = .0;

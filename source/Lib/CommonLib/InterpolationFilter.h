@@ -96,10 +96,10 @@ class InterpolationFilter {
   static const TFilterCoeff m_bilinearFilterPrec4[LUMA_INTERPOLATION_FILTER_SUB_SAMPLE_POSITIONS]
                                                  [NTAPS_BILINEAR];  ///< bilinear filter taps
  public:
-  template <bool isFirst, bool isLast>
+  template <bool isFirst, bool isLast, typename TSrc, typename TDst>
   static void filterCopy(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                          const ptrdiff_t dstStride, int width, int height, bool biMCForDMVR);
-  template <int N, bool isVertical, bool isFirst, bool isLast>
+  template <int N, bool isVertical, bool isFirst, bool isLast, typename TSrc, typename TDst>
   static void filter(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                      const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeff, bool biMCForDMVR);
   template <int N>
@@ -109,23 +109,25 @@ class InterpolationFilter {
   void filterVer(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst, const ptrdiff_t dstStride,
                  int width, int height, bool isFirst, bool isLast, TFilterCoeff const* coeff, bool biMCForDMVR);
 
-  template <bool isLast, int w>
+  template <bool isLast, int w, typename TSrc, typename TDst>
   static void filterXxY_N2(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                            const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                            TFilterCoeff const* coeffV);
-  template <bool isLast, int w>
+  template <bool isLast, int w, typename TSrc, typename TDst>
   static void filterXxY_N4(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                            const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                            TFilterCoeff const* coeffV);
-  template <bool isLast, int w>
+  template <bool isLast, int w, typename TSrc, typename TDst>
   static void filterXxY_N8(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                            const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                            TFilterCoeff const* coeffV);
 
+  template <typename TSrc, typename TDst>
   static void scalarFilterN2_2D(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                                 const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* ch,
                                 TFilterCoeff const* cv);
 
+  template <typename TDst>
   static void xWeightedGeoBlk(const PredictionUnit& pu, const uint32_t width, const uint32_t height,
                               const ComponentID compIdx, const uint8_t splitDir, PelUnitBuf& predDst,
                               PelUnitBuf& predSrc0, PelUnitBuf& predSrc1, const ClpRng& clipRng);
@@ -161,11 +163,11 @@ class InterpolationFilter {
   void (*m_weightedGeoBlk)(const PredictionUnit& pu, const uint32_t width, const uint32_t height,
                            const ComponentID compIdx, const uint8_t splitDir, PelUnitBuf& predDst, PelUnitBuf& predSrc0,
                            PelUnitBuf& predSrc1, const ClpRng& clpRng);
-  void initInterpolationFilter(bool enable);
+  void initInterpolationFilter(int iBitDepth);
 #ifdef TARGET_SIMD_X86
-  void initInterpolationFilterX86();
+  void initInterpolationFilterX86(int iBitDepth);
   template <X86_VEXT vext>
-  void _initInterpolationFilterX86();
+  void _initInterpolationFilterX86(int iBitDepth);
 #endif
 
   void filterN2_2D(const ComponentID compID, const Pel* src, const ptrdiff_t srcStride, Pel* dst,

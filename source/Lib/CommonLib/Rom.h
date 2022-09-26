@@ -78,6 +78,8 @@ extern std::atomic<int> romInitialized;
 extern const uint32_t g_log2SbbSize[MAX_LOG2_TU_SIZE_PLUS_ONE][MAX_LOG2_TU_SIZE_PLUS_ONE][2];
 extern uint32_t* g_scanOrder[SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_LOG2_TU_SIZE_PLUS_ONE]
                             [MAX_LOG2_TU_SIZE_PLUS_ONE];
+extern uint32_t* g_rasterOrder[SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_LOG2_TU_SIZE_PLUS_ONE]
+                              [MAX_LOG2_TU_SIZE_PLUS_ONE];
 
 extern uint32_t* g_coefTopLeftDiagScan8x8[MAX_CU_SIZE / 2 + 1];
 extern uint8_t* g_coefTopLeftDiagScan8x8pos[MAX_CU_SIZE / 2 + 1];

@@ -256,6 +256,22 @@ void CodingUnit::minInit(const UnitArea &unit) {
   refIdx[0] = refIdx[1] = -1;
 }
 
+void CodingUnit::setupPredBuf(Pel *predBuffer) {
+  uint32_t numCh = ::getNumberValidChannels(chromaFormat);
+  for (uint32_t i = 0; i < numCh; i++) {
+    const int cuArea = blocks[i].area();
+    if (i) {
+      predBuf[1] = predBuffer;
+      predBuffer += cuArea;
+      predBuf[2] = predBuffer;
+      predBuffer += cuArea;
+    } else {
+      predBuf[0] = predBuffer;
+      predBuffer += cuArea;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // prediction unit method definitions
 // ---------------------------------------------------------------------------

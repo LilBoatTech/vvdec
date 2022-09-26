@@ -66,19 +66,20 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef TARGET_SIMD_X86
 
 #  if ENABLE_SIMD_OPT_MCIF
-void InterpolationFilter::initInterpolationFilterX86(/*int iBitDepthY, int iBitDepthC*/) {
+void InterpolationFilter::initInterpolationFilterX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initInterpolationFilterX86<AVX2>(/*iBitDepthY, iBitDepthC*/);
+      _initInterpolationFilterX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initInterpolationFilterX86<AVX>(/*iBitDepthY, iBitDepthC*/);
-      break;
     case SSE42:
     case SSE41:
-      _initInterpolationFilterX86<SSE41>(/*iBitDepthY, iBitDepthC*/);
+      _initInterpolationFilterX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -95,8 +96,6 @@ void PelBufferOps::initPelBufOpsX86() {
       _initPelBufOpsX86<AVX2>();
       break;
     case AVX:
-      _initPelBufOpsX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
       _initPelBufOpsX86<SSE41>();
@@ -105,22 +104,41 @@ void PelBufferOps::initPelBufOpsX86() {
       break;
   }
 }
-#  endif
 
-#  if ENABLE_SIMD_OPT_DIST
-void RdCost::initRdCostX86() {
+void PelBufferOps::initPelBufOpsX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
+
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initRdCostX86<AVX2>();
+      _initPelBufOpsX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initRdCostX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initRdCostX86<SSE41>();
+      _initPelBufOpsX86<SSE41>(bitDepth);
+      break;
+    default:
+      break;
+  }
+}
+#  endif
+
+#  if ENABLE_SIMD_OPT_DIST
+void RdCost::initRdCostX86(int bitDepth) {
+  auto vext = read_x86_extension_flags();
+  switch (vext) {
+    case AVX512:
+    case AVX2:
+      _initRdCostX86<AVX2>(bitDepth);
+      break;
+    case AVX:
+    case SSE42:
+    case SSE41:
+      _initRdCostX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -129,19 +147,20 @@ void RdCost::initRdCostX86() {
 #  endif
 
 #  if ENABLE_SIMD_OPT_ALF
-void AdaptiveLoopFilter::initAdaptiveLoopFilterX86() {
+void AdaptiveLoopFilter::initAdaptiveLoopFilterX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initAdaptiveLoopFilterX86<AVX2>();
+      _initAdaptiveLoopFilterX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initAdaptiveLoopFilterX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initAdaptiveLoopFilterX86<SSE41>();
+      _initAdaptiveLoopFilterX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -150,19 +169,20 @@ void AdaptiveLoopFilter::initAdaptiveLoopFilterX86() {
 #  endif
 
 #  if ENABLE_SIMD_DBLF
-void LoopFilter::initLoopFilterX86() {
+void LoopFilter::initLoopFilterX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initLoopFilterX86<AVX2>();
+      _initLoopFilterX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initLoopFilterX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initLoopFilterX86<SSE41>();
+      _initLoopFilterX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -171,20 +191,18 @@ void LoopFilter::initLoopFilterX86() {
 #  endif
 
 #  if ENABLE_SIMD_TCOEFF_OPS
-void TCoeffOps::initTCoeffOps() {
+void TCoeffOps::initTCoeffOpsX86(int bitDepth) {
   auto vext = read_x86_extension_flags();
 
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initTCoeffOps<AVX2>();
+      _initTCoeffOpsX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initTCoeffOps<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initTCoeffOps<SSE41>();
+      _initTCoeffOpsX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -193,19 +211,20 @@ void TCoeffOps::initTCoeffOps() {
 #  endif
 
 #  if ENABLE_SIMD_OPT_INTRAPRED
-void IntraPrediction::initIntraPredictionX86() {
+void IntraPrediction::initIntraPredictionX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initIntraPredictionX86<AVX2>();
+      _initIntraPredictionX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initIntraPredictionX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initIntraPredictionX86<SSE41>();
+      _initIntraPredictionX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -214,19 +233,20 @@ void IntraPrediction::initIntraPredictionX86() {
 
 #  endif
 #  if ENABLE_SIMD_OPT_SAO
-void SampleAdaptiveOffset::initSampleAdaptiveOffsetX86() {
+void SampleAdaptiveOffset::initSampleAdaptiveOffsetX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initSampleAdaptiveOffsetX86<AVX2>();
+      _initSampleAdaptiveOffsetX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initSampleAdaptiveOffsetX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initSampleAdaptiveOffsetX86<SSE41>();
+      _initSampleAdaptiveOffsetX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -236,19 +256,20 @@ void SampleAdaptiveOffset::initSampleAdaptiveOffsetX86() {
 #  endif
 
 #  if ENABLE_SIMD_OPT_BIO
-void InterPrediction::initInterPredictionX86() {
+void InterPrediction::initInterPredictionX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initInterPredictionX86<AVX2>();
+      _initInterPredictionX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initInterPredictionX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initInterPredictionX86<SSE41>();
+      _initInterPredictionX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -257,19 +278,20 @@ void InterPrediction::initInterPredictionX86() {
 #  endif
 
 #  if ENABLE_SIMD_OPT_PICTURE
-void Picture::initPictureX86() {
+void Picture::initPictureX86(int bitDepth) {
+#    if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) return;
+#    endif
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initPictureX86<AVX2>();
+      _initPictureX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initPictureX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initPictureX86<SSE41>();
+      _initPictureX86<SSE41>(bitDepth);
       break;
     default:
       break;
@@ -278,19 +300,17 @@ void Picture::initPictureX86() {
 #  endif
 
 #  if ENABLE_SIMD_OPT_QUANT
-void Quant::initQuantX86() {
+void Quant::initQuantX86(int bitDepth) {
   auto vext = read_x86_extension_flags();
   switch (vext) {
     case AVX512:
     case AVX2:
-      _initQuantX86<AVX2>();
+      _initQuantX86<AVX2>(bitDepth);
       break;
     case AVX:
-      _initQuantX86<AVX>();
-      break;
     case SSE42:
     case SSE41:
-      _initQuantX86<SSE41>();
+      _initQuantX86<SSE41>(bitDepth);
       break;
     default:
       break;

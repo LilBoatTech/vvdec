@@ -58,7 +58,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include "CommonLib/ParameterSetManager.h"
 
 class InputNALUnit;
-class NoMallocThreadPool;
+// class NoMallocThreadPool;
 class DecLib;
 class PicListManager;
 
@@ -98,7 +98,6 @@ class DecLibParser {
   DCI* m_dci = nullptr;
   std::list<InputNALUnit> m_prefixSEINALUs;  /// Buffered up prefix SEI NAL Units.
 
-#if JVET_P0101_POC_MULTILAYER
   struct AccessUnitPicInfo {
     NalUnitType m_nalUnitType;  ///< nal_unit_type
     uint32_t m_temporalId;      ///< temporal_id
@@ -106,7 +105,6 @@ class DecLibParser {
     int m_POC;
   };
   std::vector<AccessUnitPicInfo> m_accessUnitPicInfo;
-#endif
   struct NalUnitInfo {
     NalUnitType m_nalUnitType;   ///< nal_unit_type
     uint32_t m_nuhLayerId;       ///< nuh_layer_id
@@ -124,12 +122,12 @@ class DecLibParser {
                        ///< excluding prefix SEIs...
   HRD m_HRD;
 
-  NoMallocThreadPool* m_threadPool = nullptr;
+  // NoMallocThreadPool* m_threadPool = nullptr;
 
   // functional classes
   HLSyntaxReader m_HLSReader;
   SEIReader m_seiReader;
-  DecSlice m_cSliceDecoder;
+  // DecSlice m_cSliceDecoder;
 
   DecLib& m_decLib;
   ParameterSetManager m_parameterSetManager;  // storage for parameter sets
@@ -147,16 +145,12 @@ class DecLibParser {
       : m_decLib(decLib), m_picListManager(picListManager), m_picHeader(picHeader) {}
   ~DecLibParser();
 
-  void create(NoMallocThreadPool* tp, int parserFrameDelay, int numReconInst, int numDecThreads);
+  void create(int parserFrameDelay, int numReconInst, int numDecThreads);
   void destroy();
 
   void recreateLostPicture(Picture* pcPic);
 
-#if JVET_P0288_PIC_OUTPUT
   Picture* parse(InputNALUnit& nalu, int* pSkipFrame, int iTargetLayer = -1);
-#else
-  Picture* parse(InputNALUnit& nalu, int* pSkipFrame);
-#endif
   Picture* getNextDecodablePicture();
 
   void setFirstSliceInPicture(bool val) { m_bFirstSliceInPicture = val; }
@@ -184,12 +178,8 @@ class DecLibParser {
 
   Picture* xActivateParameterSets(const int layerId);
   Picture* prepareLostPicture(int iLostPOC, const int layerId);
-#if JVET_S0124_UNAVAILABLE_REFERENCE
   Picture* prepareUnavailablePicture(const PPS* pps, int iUnavailablePoc, const int layerId, const bool longTermFlag,
                                      const int temporalId);
-#else
-  Picture* prepareUnavailablePicture(int iUnavailablePoc, const int layerId, const bool longTermFlag);
-#endif
 
   void xParsePrefixSEImessages();
   void xParsePrefixSEIsForUnknownVCLNal();

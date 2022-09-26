@@ -225,7 +225,7 @@ class SEIuserDataUnregistered : public SEI {
 
   SEIuserDataUnregistered() : userData(0) {}
 
-  virtual ~SEIuserDataUnregistered() { delete userData; }
+  virtual ~SEIuserDataUnregistered() { delete[] userData; }
 
   uint8_t uuid_iso_iec_11578[ISO_IEC_11578_LEN];
   uint32_t userDataLength;

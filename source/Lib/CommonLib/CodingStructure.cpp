@@ -69,15 +69,19 @@ const UnitScale UnitScaleArray[NUM_CHROMA_FORMAT][MAX_NUM_COMPONENT] = {
 // coding structure method definitions
 // ---------------------------------------------------------------------------
 
-CodingStructure::CodingStructure(std::shared_ptr<CUCache> cuCache, std::shared_ptr<TUCache> tuCache)
+CodingStructure::CodingStructure(/*std::shared_ptr<CUCache> cuCache, std::shared_ptr<TUCache> tuCache*/)
     : area(),
       picture(nullptr),
       m_ctuData(nullptr),
+      m_saoBlkParam(nullptr),
+      m_ctuLoopFilterDataHorEdge(nullptr),
+      m_ctuCuPtr(nullptr),
       m_ctuDataSize(0),
       m_dmvrMvCache(nullptr),
-      m_dmvrMvCacheSize(0),
-      m_cuCache(cuCache),
-      m_tuCache(tuCache),
+      m_dmvrMvCacheSize(0)
+      //, m_cuCache ( cuCache )
+      //, m_tuCache ( tuCache )
+      ,
       m_IBCBufferWidth(0) {
   m_dmvrMvCacheOffset = 0;
 }
@@ -87,7 +91,7 @@ void CodingStructure::destroy() {
 
   m_reco.destroy();
   m_rec_wrap.destroy();
-  m_pred.destroy();
+  // m_pred.destroy();
 
   if (m_dmvrMvCache) {
     free(m_dmvrMvCache);
@@ -95,11 +99,7 @@ void CodingStructure::destroy() {
     m_dmvrMvCacheSize = 0;
   }
 
-  m_cuCache->defragment();
-  m_tuCache->defragment();
-
   m_virtualIBCbuf.clear();
-
   if (m_ctuData) {
     free(m_ctuData);
     m_ctuData = nullptr;
@@ -137,28 +137,16 @@ CodingUnit& CodingStructure::addCU(const UnitArea& unit, const ChannelType chTyp
   cu->ctuData = &ctuData;
 
   for (uint32_t i = 0; i < numCh; i++) {
-    if (!cu->blocks[i].valid()) {
-      continue;
-    }
-
-    const int cuArea = cu->blocks[i].area();
-
-    if (i) {
-      cu->predBuf[1] = m_predBuf[1];
-      m_predBuf[1] += cuArea;
-      cu->predBuf[2] = m_predBuf[2];
-      m_predBuf[2] += cuArea;
-    } else {
-      cu->predBuf[0] = m_predBuf[0];
-      m_predBuf[0] += cuArea;
-    }
-
+    //    if( !cu->blocks[i].valid() )
+    //    {
+    //      continue;
+    //    }
     const ptrdiff_t stride = ptrdiff_t(1) << m_ctuWidthLog2[i];
     const Area& _blk = cu->blocks[i];
     const UnitScale scale = unitScale[i];
 
-    g_pelBufOP.fillN_CU(ctuData.cuPtr[i] + inCtuPos(_blk, ChannelType(i)), stride, scale.scaleHor(_blk.width),
-                        scale.scaleVer(_blk.height), cu);
+    g_pelBufOP.fillN_CU(getCtuCuPtrData(currRsAddr).cuPtr[i] + inCtuPos(_blk, ChannelType(i)), stride,
+                        scale.scaleHor(_blk.width), scale.scaleVer(_blk.height), cu);
 
     if (i == chType) {
       cu->left = cuLeft;
@@ -281,10 +269,6 @@ void CodingStructure::rebindPicBufs() {
     m_rec_wrap.createFromBuf(picture->m_bufs[PIC_RECON_WRAP]);
   else
     m_rec_wrap.destroy();
-  if (!picture->m_bufs[PIC_PREDICTION].bufs.empty())
-    m_pred.createFromBuf(picture->m_bufs[PIC_PREDICTION]);
-  else
-    m_pred.destroy();
 }
 
 void CodingStructure::initStructData() {
@@ -308,19 +292,9 @@ void CodingStructure::initStructData() {
     if (m_ctuData) free(m_ctuData);
     m_ctuData = (CtuData*)malloc(m_ctuDataSize * sizeof(CtuData));
   }
-
-  for (int i = 0; i < m_ctuDataSize; i++) {
-    CtuData& ctuData = m_ctuData[i];
-    memset(ctuData.cuPtr, 0, sizeof(ctuData.cuPtr));
-  }
+  memset(m_ctuCuPtr, 0, m_ctuDataSize * sizeof(CtuCuPtr));
 
   m_dmvrMvCacheOffset = 0;
-
-  m_predBuf[0] = m_pred.bufs[0].buf;
-  if (isChromaEnabled(area.chromaFormat)) {
-    m_predBuf[1] = m_pred.bufs[1].buf;
-    m_predBuf[2] = m_pred.bufs[2].buf;
-  }
 }
 
 MotionBuf CodingStructure::getMotionBuf(const Area& _area) {
@@ -416,22 +390,20 @@ const CodingUnit* CodingStructure::getCURestricted(const Position& pos, const Co
   const CodingUnit* cu = nullptr;
 
   if (sameCTU) {
-    cu = curCu.ctuData->cuPtr[_chType][inCtuPos(pos, _chType)];
+    cu = getCUFast(pos, _chType);
+    return (!cu || cu->idx > curCu.idx) ? nullptr : cu;
   } else if (ydiff > 0 || xdiff > (1 - sps->getEntropyCodingSyncEnabledFlag())) {
     return nullptr;
   } else {
     cu = getCU(pos, _chType);
-  }
 
-  if (!cu || cu->idx > curCu.idx)
-    return nullptr;
-  else if (sameCTU)
-    return cu;
+    if (!cu || cu->idx > curCu.idx) return nullptr;
 
-  if (cu->slice->getIndependentSliceIdx() == curCu.slice->getIndependentSliceIdx() && cu->tileIdx == curCu.tileIdx) {
-    return cu;
-  } else {
-    return nullptr;
+    if (cu->slice->getIndependentSliceIdx() == curCu.slice->getIndependentSliceIdx() && cu->tileIdx == curCu.tileIdx) {
+      return cu;
+    } else {
+      return nullptr;
+    }
   }
 }
 
@@ -467,6 +439,9 @@ void CodingStructure::initVIbcBuf(int numCtuLines, ChromaFormat chromaFormatIDC,
 }
 
 void CodingStructure::fillIBCbuffer(CodingUnit& cu, int lineIdx) {
+#if ADAPTIVE_BIT_DEPTH
+  int bytePerPixel = sps->getBitDepth(CHANNEL_TYPE_LUMA) <= 8 ? 1 : 2;
+#endif
   for (TransformUnit& tu : TUTraverser(&cu.firstTU, cu.lastTU->next)) {
     for (const CompArea& area : tu.blocks) {
       if (!area.valid()) continue;
@@ -478,10 +453,16 @@ void CodingStructure::fillIBCbuffer(CodingUnit& cu, int lineIdx) {
       const int pux = area.x & ((m_IBCBufferWidth >> shiftSampleHor) - 1);
       const int puy = area.y & ((1 << ctuSizeVerLog2) - 1);
       const CompArea dstArea = CompArea(area.compID, Position(pux, puy), Size(area.width, area.height));
+
+#if ADAPTIVE_BIT_DEPTH
+      CPelBuf srcBuf = getRecoBuf(area, bytePerPixel);
+      PelBuf dstBuf = m_virtualIBCbuf[lineIdx].getBuf(dstArea, bytePerPixel);
+      dstBuf.copyFrom2(srcBuf, bytePerPixel);
+#else
       CPelBuf srcBuf = getRecoBuf(area);
       PelBuf dstBuf = m_virtualIBCbuf[lineIdx].getBuf(dstArea);
-
       dstBuf.copyFrom(srcBuf);
+#endif
     }
   }
 }

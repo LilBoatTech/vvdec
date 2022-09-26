@@ -303,51 +303,63 @@ void fastInv_SSE(const TMatrixCoeff* it, const TCoeff* src, TCoeff* dst, unsigne
 template <X86_VEXT vext, int W>
 void roundClip_SSE(TCoeff* dst, unsigned width, unsigned height, unsigned stride, const TCoeff outputMin,
                    const TCoeff outputMax, const TCoeff round, const TCoeff shift) {
-#    if USE_AVX2
-  if (W >= 8 && vext >= AVX2) {
-    __m256i vmin = _mm256_set1_epi32(outputMin);
-    __m256i vmax = _mm256_set1_epi32(outputMax);
-    __m256i vrnd = _mm256_set1_epi32(round);
+#if USE_AVX2
+  if( W >= 8 && vext >= AVX2 )
+  {
+    __m256i vmin = _mm256_set1_epi32( outputMin );
+    __m256i vmax = _mm256_set1_epi32( outputMax );
+    __m256i vrnd = _mm256_set1_epi32( round );
 
-    while (height--) {
-      for (int col = 0; col < width; col += 8) {
-        __m256i vdst = _mm256_load_si256((__m256i*)&dst[col]);
-        vdst = _mm256_add_epi32(vdst, vrnd);
-        vdst = _mm256_srai_epi32(vdst, shift);
-        vdst = _mm256_max_epi32(vdst, vmin);
-        vdst = _mm256_min_epi32(vdst, vmax);
-        _mm256_store_si256((__m256i*)&dst[col], vdst);
+    while( height-- )
+    {
+      for( int col = 0; col < width; col += 8 )
+      {
+        __m256i
+        vdst = _mm256_load_si256( ( __m256i * ) &dst[col] );
+        vdst = _mm256_add_epi32 ( vdst, vrnd );
+        vdst = _mm256_srai_epi32( vdst, shift );
+        vdst = _mm256_max_epi32 ( vdst, vmin );
+        vdst = _mm256_min_epi32 ( vdst, vmax );
+        _mm256_store_si256      ( ( __m256i * ) &dst[col], vdst );
       }
 
       dst += stride;
     }
-  } else
-#    endif
-      if (W >= 4) {
-    __m128i vmin = _mm_set1_epi32(outputMin);
-    __m128i vmax = _mm_set1_epi32(outputMax);
-    __m128i vrnd = _mm_set1_epi32(round);
-
-    while (height--) {
-      for (int col = 0; col < width; col += 4) {
-        __m128i vdst = _mm_load_si128((__m128i*)&dst[col]);
-        vdst = _mm_add_epi32(vdst, vrnd);
-        vdst = _mm_srai_epi32(vdst, shift);
-        vdst = _mm_max_epi32(vdst, vmin);
-        vdst = _mm_min_epi32(vdst, vmax);
-        _mm_store_si128((__m128i*)&dst[col], vdst);
-      }
-
-      dst += stride;
-    }
-  } else {
-    THROW("Unsupported size");
   }
-#    if USE_AVX2
+  else
+#endif
+  if( W >= 4 )
+  {
+    __m128i vmin = _mm_set1_epi32( outputMin );
+    __m128i vmax = _mm_set1_epi32( outputMax );
+    __m128i vrnd = _mm_set1_epi32( round );
+
+    while( height-- )
+    {
+      for( int col = 0; col < width; col += 4 )
+      {
+        __m128i
+        vdst = _mm_load_si128 ( ( __m128i * ) &dst[col] );
+        vdst = _mm_add_epi32  ( vdst, vrnd );
+        vdst = _mm_srai_epi32 ( vdst, shift );
+        vdst = _mm_max_epi32  ( vdst, vmin );
+        vdst = _mm_min_epi32  ( vdst, vmax );
+        _mm_store_si128       ( ( __m128i * ) &dst[col], vdst );
+      }
+
+      dst += stride;
+    }
+  }
+  else
+  {
+    THROW( "Unsupported size" );
+  }
+#if USE_AVX2
 
   _mm256_zeroupper();
-#    endif
+#endif
 }
+
 
 template <X86_VEXT vext, int W>
 void cpyResi_SSE(const TCoeff* src, Pel* dst, ptrdiff_t stride, unsigned width, unsigned height) {
@@ -389,7 +401,7 @@ void cpyResi_SSE(const TCoeff* src, Pel* dst, ptrdiff_t stride, unsigned width, 
 }
 
 template <X86_VEXT vext>
-void TCoeffOps::_initTCoeffOps() {
+void TCoeffOps::_initTCoeffOpsX86(int bitDepth) {
   cpyResi4 = cpyResi_SSE<vext, 4>;
   cpyResi8 = cpyResi_SSE<vext, 8>;
   roundClip4 = roundClip_SSE<vext, 4>;
@@ -398,7 +410,7 @@ void TCoeffOps::_initTCoeffOps() {
   fastInvCore8 = fastInv_SSE<vext, 8>;
 }
 
-template void TCoeffOps::_initTCoeffOps<SIMDX86>();
+template void TCoeffOps::_initTCoeffOpsX86<SIMDX86>(int bitDepth);
 
 #  endif  // TARGET_SIMD_X86
 #endif

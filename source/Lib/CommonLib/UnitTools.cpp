@@ -59,9 +59,21 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <algorithm>
 
-static bool isDualITree(const Slice &slice) { return slice.isIRAP() && slice.getSPS()->getUseDualITree(); }
+static bool isDualITree(const Slice &slice) {
+#if GDR_ADJ
+  return slice.isIntra() && slice.getSPS()->getUseDualITree();
+#else
+  return slice.isIRAP() && slice.getSPS()->getUseDualITree();
+#endif
+}
 
-bool CU::isDualITree(const CodingUnit &cu) { return cu.slice->isIRAP() && cu.slice->getSPS()->getUseDualITree(); }
+bool CU::isDualITree(const CodingUnit &cu) {
+#if GDR_ADJ
+  return cu.slice->isIntra() && cu.slice->getSPS()->getUseDualITree();
+#else
+  return cu.slice->isIRAP() && cu.slice->getSPS()->getUseDualITree();
+#endif
+}
 
 UnitArea getArea(const Slice &slice, const UnitArea &area, const ChannelType chType, const TreeType treeType) {
   return isDualITree(slice) || treeType != TREE_D ? area.singleChan(chType) : area;
@@ -163,11 +175,84 @@ bool CU::getRprScaling(const SPS *sps, const PPS *curPPS, const PPS *refPPS, int
   return false;  // return whatever, because it's not used... to be changed
 }
 
-#if JVET_R0058
+static void waitForReferencePictureReadyGeo(const CodingUnit &cu) {
+  int posY = cu.lumaPos().y + cu.lumaSize().height + 8;
+  int log2H = cu.cs->pcv->maxCUHeightLog2;
+  int heightInCtus = cu.cs->pcv->heightInCtus;
+  const UnitArea localUnitArea(cu.cs->area.chromaFormat, Area(0, 0, cu.lwidth(), cu.lheight()));
+  uint8_t locInterDir = cu.interDirrefIdxGeo0() >> 4;
+  CHECKD(!(locInterDir == 1 || locInterDir == 2), "Should not happen");
+  Mv mv0[2];
+  int refIdx[2];
+  mv0[0] = locInterDir == 1 ? cu.mv[0][1] : Mv();
+  mv0[1] = locInterDir == 1 ? Mv() : cu.mv[0][1];
+  refIdx[REF_PIC_LIST_0] = locInterDir == 1 ? cu.interDirrefIdxGeo0() & 15 : -1;
+  refIdx[REF_PIC_LIST_1] = locInterDir == 1 ? -1 : cu.interDirrefIdxGeo0() & 15;
+  for (int i = 0; i < 2; i++) {
+    if (refIdx[i] >= 0) {
+      int mvY = mv0[i].getVer() >> MV_FRACTIONAL_BITS_INTERNAL;
+      int row = (mvY + posY) >> log2H;
+      if (row < 0) row = 0;
+      Picture *refPic = cu.slice->getRefPic(RefPicList(i), refIdx[i]);
+      int counter = refPic->m_rowCompleteCount.get();
+      while (counter != heightInCtus && counter <= row) {
+        counter = refPic->m_rowCompleteCount.waitForChange(counter);
+      }
+    }
+  }
+  locInterDir = cu.interDirrefIdxGeo1() >> 4;
+  CHECKD(!(locInterDir == 1 || locInterDir == 2), "Should not happen");
+  mv0[0] = locInterDir == 1 ? cu.mv[1][1] : Mv();
+  mv0[1] = locInterDir == 1 ? Mv() : cu.mv[1][1];
+  refIdx[REF_PIC_LIST_0] = locInterDir == 1 ? cu.interDirrefIdxGeo1() & 15 : -1;
+  refIdx[REF_PIC_LIST_1] = locInterDir == 1 ? -1 : cu.interDirrefIdxGeo1() & 15;
+  for (int i = 0; i < 2; i++) {
+    if (refIdx[i] >= 0) {
+      int mvY = mv0[i].getVer() >> MV_FRACTIONAL_BITS_INTERNAL;
+      int row = (mvY + posY) >> log2H;
+      if (row < 0) row = 0;
+      Picture *refPic = cu.slice->getRefPic(RefPicList(i), refIdx[i]);
+      int counter = refPic->m_rowCompleteCount.get();
+      while (counter != heightInCtus && counter <= row) {
+        counter = refPic->m_rowCompleteCount.waitForChange(counter);
+      }
+    }
+  }
+}
+
+void CU::waitForReferencePictureReady(const CodingUnit &cu) {
+  if (cu.geoFlag()) {
+    ::waitForReferencePictureReadyGeo(cu);
+    return;
+  }
+  int posY = cu.lumaPos().y + cu.lumaSize().height + 8;
+  int log2H = cu.cs->pcv->maxCUHeightLog2;
+  int heightInCtus = cu.cs->pcv->heightInCtus;
+  bool bFastPath = !cu.affineFlag() && !(cu.mergeFlag() && cu.mergeType() == MRG_TYPE_SUBPU_ATMVP);
+  CMotionBuf mb = cu.getMotionBuf();
+  for (int y = 0; y < mb.height; y++) {
+    for (int x = 0; x < mb.width; x++) {
+      const MotionInfo &mi = mb.at(x, y);
+      for (int i = 0; i < 2; i++) {
+        if (mi.refIdx[i] >= 0) {
+          int mvY = mi.mv[i].getVer() >> MV_FRACTIONAL_BITS_INTERNAL;
+          int row = (mvY + posY) >> log2H;
+          if (row < 0) row = 0;
+          Picture *refPic = cu.slice->getRefPic(RefPicList(i), mi.refIdx[i]);
+          int counter = refPic->m_rowCompleteCount.get();
+          while (counter != heightInCtus && counter <= row) {
+            counter = refPic->m_rowCompleteCount.waitForChange(counter);
+          }
+        }
+      }
+      if (bFastPath) return;
+    }
+  }
+}
+
 void CU::checkConformanceILRP(Slice *slice) {
   const int numRefList = (slice->getSliceType() == B_SLICE) ? (2) : (1);
 
-#  if JVET_S0258_SUBPIC_CONSTRAINTS
   int currentSubPicIdx = NOT_VALID;
 
   // derive sub-picture index for the current slice
@@ -183,7 +268,6 @@ void CU::checkConformanceILRP(Slice *slice) {
   if (!slice->getPic()->cs->sps->getSubPicTreatedAsPicFlag(currentSubPicIdx)) {
     return;
   }
-#  endif
 
   // constraint 1: The picture referred to by each active entry in RefPicList[ 0 ] or RefPicList[ 1 ] has the same
   // subpicture layout as the current picture
@@ -192,21 +276,13 @@ void CU::checkConformanceILRP(Slice *slice) {
   {
     RefPicList eRefPicList = (refList ? REF_PIC_LIST_1 : REF_PIC_LIST_0);
     for (int refIdx = 0; refIdx < slice->getNumRefIdx(eRefPicList); refIdx++) {
-#  if JVET_S0258_SUBPIC_CONSTRAINTS
       const Picture *refPic = slice->getRefPic(eRefPicList, refIdx);
 
-      if (refPic->subPictures.size() != slice->getPic()->cs->pps->getNumSubPics())
-#  else
-      const Picture *refPic = slice->getRefPic(eRefPicList, refIdx)->unscaledPic;
-
-      if (refPic->numSubpics != slice->getPic()->cs->pps->getNumSubPics())
-#  endif
-      {
+      if (refPic->subPictures.size() != slice->getPic()->cs->pps->getNumSubPics()) {
         isAllRefSameSubpicLayout = false;
         refList = numRefList;
         break;
       } else {
-#  if JVET_S0258_SUBPIC_CONSTRAINTS
         for (int i = 0; i < refPic->subPictures.size(); i++) {
           const SubPic &refSubPic = refPic->subPictures[i];
           const SubPic &curSubPic = slice->getPic()->cs->pps->getSubPic(i);
@@ -216,15 +292,7 @@ void CU::checkConformanceILRP(Slice *slice) {
               refSubPic.getSubPicCtuTopLeftX() != curSubPic.getSubPicCtuTopLeftX() ||
               refSubPic.getSubPicCtuTopLeftY() != curSubPic.getSubPicCtuTopLeftY() ||
               (refPic->layerId != slice->getPic()->layerId && refSubPic.getSubPicID() != curSubPic.getSubPicID()) ||
-              refSubPic.getTreatedAsPicFlag() != curSubPic.getTreatedAsPicFlag())
-#  else
-        for (int i = 0; i < refPic->numSubpics; i++) {
-          if (refPic->subpicWidthInCTUs[i] != slice->getPic()->cs->pps->getSubPic(i).getSubPicWidthInCTUs() ||
-              refPic->subpicHeightInCTUs[i] != slice->getPic()->cs->pps->getSubPic(i).getSubPicHeightInCTUs() ||
-              refPic->subpicCtuTopLeftX[i] != slice->getPic()->cs->pps->getSubPic(i).getSubPicCtuTopLeftX() ||
-              refPic->subpicCtuTopLeftY[i] != slice->getPic()->cs->pps->getSubPic(i).getSubPicCtuTopLeftY())
-#  endif
-          {
+              refSubPic.getTreatedAsPicFlag() != curSubPic.getTreatedAsPicFlag()) {
             isAllRefSameSubpicLayout = false;
             refIdx = slice->getNumRefIdx(eRefPicList);
             refList = numRefList;
@@ -232,14 +300,12 @@ void CU::checkConformanceILRP(Slice *slice) {
           }
         }
 
-#  if JVET_S0258_SUBPIC_CONSTRAINTS
         // A picture with different sub-picture ID of the collocated sub-picture cannot be used as an active reference
         // picture in the same layer
         if (refPic->layerId == slice->getPic()->layerId) {
           isAllRefSameSubpicLayout = isAllRefSameSubpicLayout &&
                                      refPic->subPictures[currentSubPicIdx].getSubPicID() == slice->getSliceSubPicId();
         }
-#  endif
       }
     }
   }
@@ -251,36 +317,24 @@ void CU::checkConformanceILRP(Slice *slice) {
     {
       RefPicList eRefPicList = (refList ? REF_PIC_LIST_1 : REF_PIC_LIST_0);
       for (int refIdx = 0; refIdx < slice->getNumRefIdx(eRefPicList); refIdx++) {
-#  if JVET_S0258_SUBPIC_CONSTRAINTS
         const Picture *refPic = slice->getRefPic(eRefPicList, refIdx);
         CHECK(refPic->layerId == slice->getPic()->layerId || refPic->subPictures.size() > 1,
-              "The inter-layer reference shall contain a single subpicture or have same subpicture layout with the "
-              "current picture");
-#  else
-        const Picture *refPic = slice->getRefPic(eRefPicList, refIdx)->unscaledPic;
-        CHECK(!(refPic->layerId != slice->getPic()->layerId && refPic->numSubpics == 1),
-              "The inter-layer reference shall contain a single subpicture or have same subpicture layout with the "
-              "current picture");
-#  endif
+              "The inter-layer reference shall contain a single subpicture or have same subpicture layout with the current picture");
       }
     }
   }
-
-  return;
 }
-#endif
 
 bool CU::isSameSlice(const CodingUnit &cu, const CodingUnit &cu2) {
   return cu.slice->getIndependentSliceIdx() == cu2.slice->getIndependentSliceIdx();
 }
 
 bool CU::isSameTile(const CodingUnit &cu, const CodingUnit &cu2) { return cu.tileIdx == cu2.tileIdx; }
-#if JVET_O1143_SUBPIC_BOUNDARY
+
 bool CU::isSameSubPic(const CodingUnit &cu, const CodingUnit &cu2) {
   return (cu.slice->getPPS()->getSubPicFromCU(cu).getSubPicIdx() ==
           cu2.slice->getPPS()->getSubPicFromCU(cu2).getSubPicIdx());
 }
-#endif
 
 bool CU::isSameCtu(const CodingUnit &cu, const CodingUnit &cu2) {
   uint32_t ctuSizeBit = getLog2(cu.cs->sps->getMaxCUWidth());
@@ -497,23 +551,17 @@ int PU::getIntraMPMs(const PredictionUnit &pu, unsigned *mpm, const ChannelType 
 }
 
 bool CU::isMIP(const CodingUnit &cu, const ChannelType &chType) {
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
   if (chType == CHANNEL_TYPE_LUMA) {
     // Default case if chType is omitted.
     return cu.mipFlag();
   } else {
     return PU::isDMChromaMIP(cu) && (cu.intraDir[CHANNEL_TYPE_CHROMA] == DM_CHROMA_IDX);
   }
-#else
-  return (chType == CHANNEL_TYPE_LUMA && cu.mipFlag());
-#endif
 }
 
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
 bool PU::isDMChromaMIP(const PredictionUnit &pu) {
   return !CU::isSepTree(pu) && (pu.chromaFormat == CHROMA_444) && getCoLocatedLumaPU(pu).mipFlag();
 }
-#endif
 
 int PU::getMipSizeId(const PredictionUnit &pu) {
   if ((pu.lwidth() == 4) && (pu.lheight() == 4)) {
@@ -543,13 +591,10 @@ void PU::getIntraChromaCandModes(const PredictionUnit &pu, unsigned modeList[NUM
   modeList[6] = MDLM_T_IDX;
   modeList[7] = DM_CHROMA_IDX;
 
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
   // If Direct Mode is MIP, mode cannot be already in the list.
   if (isDMChromaMIP(pu)) {
     return;
   }
-
-#endif
   const uint32_t lumaMode = getCoLocatedIntraLumaMode(pu);
   for (int i = 0; i < 4; i++) {
     if (lumaMode == modeList[i]) {
@@ -583,7 +628,6 @@ uint32_t PU::getFinalIntraMode(const PredictionUnit &pu, const ChannelType &chTy
   return uiIntraMode;
 }
 
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
 const PredictionUnit &PU::getCoLocatedLumaPU(const PredictionUnit &pu) {
   Position topLeftPos = pu.blocks[pu.chType()].lumaPos(pu.chromaFormat);
   Position refPos = topLeftPos.offset(pu.blocks[pu.chType()].lumaSize(pu.chromaFormat).width >> 1,
@@ -597,17 +641,6 @@ const PredictionUnit &PU::getCoLocatedLumaPU(const PredictionUnit &pu) {
 uint32_t PU::getCoLocatedIntraLumaMode(const PredictionUnit &pu) {
   return PU::getIntraDirLuma(PU::getCoLocatedLumaPU(pu));
 }
-#else
-uint32_t PU::getCoLocatedIntraLumaMode(const PredictionUnit &pu) {
-  Position topLeftPos = pu.blocks[pu.chType()].lumaPos(pu.chromaFormat);
-  Position refPos = topLeftPos.offset(pu.blocks[pu.chType()].lumaSize(pu.chromaFormat).width >> 1,
-                                      pu.blocks[pu.chType()].lumaSize(pu.chromaFormat).height >> 1);
-
-  const PredictionUnit &lumaPU = CU::isSepTree(pu) ? *pu.cs->getCU(refPos, CHANNEL_TYPE_LUMA) : pu;
-
-  return PU::getIntraDirLuma(lumaPU);
-}
-#endif
 
 int PU::getWideAngIntraMode(const TransformUnit &tu, const uint32_t dirMode, const ComponentID compID) {
   if (dirMode < 2) {
@@ -1000,18 +1033,13 @@ void PU::getInterMergeCandidates(const PredictionUnit &pu, MergeCtx &mrgCtx, Mot
     Position posC1 = pu.Y().center();
     bool C0Avail = false;
 
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
     bool boundaryCond = ((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight);
     const SubPic &curSubPic = cu.slice->getPPS()->getSubPicFromPos(pu.lumaPos());
     if (curSubPic.getTreatedAsPicFlag()) {
       boundaryCond = ((posRB.x + pcv.minCUWidth) <= curSubPic.getSubPicRight() &&
                       (posRB.y + pcv.minCUHeight) <= curSubPic.getSubPicBottom());
     }
-    if (boundaryCond)
-#else
-    if (((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight))
-#endif
-    {
+    if (boundaryCond) {
       {
         Position posInCtu(posRB.x & pcv.maxCUWidthMask, posRB.y & pcv.maxCUHeightMask);
 
@@ -1236,7 +1264,26 @@ int convertMvFloatToFixed(int val) {
   return exponent == 0 ? mantissa : (mantissa ^ MV_MANTISSA_LIMIT) << (exponent - 1);
 }
 
-int roundMvComp(int x) { return convertMvFloatToFixed(convertMvFixedToFloat(x)); }
+int roundMvComp(int val) {
+  // return convertMvFloatToFixed(convertMvFixedToFloat(x));
+  int sign = val >> 31;
+  int scale = getLog2((val ^ sign) | MV_MANTISSA_UPPER_LIMIT) - (MV_MANTISSA_BITCOUNT - 1);
+
+  int exponent;
+  int mantissa;
+  if (scale >= 0) {
+    int round = (1 << scale) >> 1;
+    int n = (val + round) >> scale;
+    exponent = scale + ((n ^ sign) >> (MV_MANTISSA_BITCOUNT - 1));
+    mantissa = (n & MV_MANTISSA_UPPER_LIMIT) | (sign << (MV_MANTISSA_BITCOUNT - 1));
+    return (mantissa ^ MV_MANTISSA_LIMIT) << (exponent - 1);
+  } else {
+    exponent = 0;
+    mantissa = val;
+    return mantissa;
+  }
+  // return 0;
+}
 
 int PU::getDistScaleFactor(const int &currPOC, const int &currRefPOC, const int &colPOC, const int &colRefPOC) {
   return xGetDistScaleFactor(currPOC, currRefPOC, colPOC, colRefPOC);
@@ -1293,15 +1340,22 @@ bool PU::getColocatedMVP(const PredictionUnit &pu, const RefPicList &eRefPicList
     return false;
   }
 
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
   // Check the position of colocated block is within a subpicture
   const SubPic &curSubPic = pu.slice->getPPS()->getSubPicFromPos(pu.lumaPos());
   if (curSubPic.getTreatedAsPicFlag()) {
     if (!curSubPic.isContainingPos(pos)) return false;
   }
-#endif
-  RefPicList eColRefPicList = slice.getCheckLDC() ? eRefPicList : RefPicList(slice.getColFromL0Flag());
 
+  RefPicList eColRefPicList = slice.getCheckLDC() ? eRefPicList : RefPicList(slice.getColFromL0Flag());
+  // wait for pos be ready
+  {
+    int row = pos.y >> pColPic->cs->pcv->maxCUHeightLog2;
+    int col = pos.x >> pColPic->cs->pcv->maxCUWidthLog2;
+    int counter = pColPic->m_rowMotionInfoCounter[row].get();
+    int widthInCtus = pColPic->cs->pcv->widthInCtus;
+    while (counter != widthInCtus && counter <= col)
+      counter = pColPic->m_rowMotionInfoCounter[row].waitForChange(counter);
+  }
   const MotionInfo &mi = pColPic->cs->getMotionInfo(pos);
 
   if (!mi.isInter) {
@@ -1469,18 +1523,13 @@ void PU::fillMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, const in
     Position posC1 = pu.Y().center();
     Mv cColMv;
 
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
     bool boundaryCond = ((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight);
     const SubPic &curSubPic = pu.slice->getPPS()->getSubPicFromPos(pu.lumaPos());
     if (curSubPic.getTreatedAsPicFlag()) {
       boundaryCond = ((posRB.x + pcv.minCUWidth) <= curSubPic.getSubPicRight() &&
                       (posRB.y + pcv.minCUHeight) <= curSubPic.getSubPicBottom());
     }
-    if (boundaryCond)
-#else
-    if (((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight))
-#endif
-    {
+    if (boundaryCond) {
       Position posInCtu(posRB.x & pcv.maxCUWidthMask, posRB.y & pcv.maxCUHeightMask);
 
       if ((posInCtu.x + 4 < pcv.maxCUWidth) &&  // is not at the last column of CTU
@@ -1803,7 +1852,7 @@ void PU::fillAffineMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, co
       bool C0Avail = false;
       Position posC1 = pu.Y().center();
       Mv cColMv;
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
+
       bool boundaryCond =
           ((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight);
       const SubPic &curSubPic = pu.slice->getPPS()->getSubPicFromPos(pu.lumaPos());
@@ -1811,11 +1860,7 @@ void PU::fillAffineMvpCand(PredictionUnit &pu, const RefPicList &eRefPicList, co
         boundaryCond = ((posRB.x + pcv.minCUWidth) <= curSubPic.getSubPicRight() &&
                         (posRB.y + pcv.minCUHeight) <= curSubPic.getSubPicBottom());
       }
-      if (boundaryCond)
-#else
-      if (((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight))
-#endif
-      {
+      if (boundaryCond) {
         Position posInCtu(posRB.x & pcv.maxCUWidthMask, posRB.y & pcv.maxCUHeightMask);
 
         if ((posInCtu.x + 4 < pcv.maxCUWidth) &&  // is not at the last column of CTU
@@ -2310,7 +2355,6 @@ void PU::getAffineMergeCand(const PredictionUnit &pu, AffineMergeCtx &affMrgCtx,
         Position posC0;
         bool C0Avail = false;
 
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
         bool boundaryCond =
             ((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight);
         const SubPic &curSubPic = cu.slice->getPPS()->getSubPicFromPos(pu.lumaPos());
@@ -2318,11 +2362,7 @@ void PU::getAffineMergeCand(const PredictionUnit &pu, AffineMergeCtx &affMrgCtx,
           boundaryCond = ((posRB.x + pcv.minCUWidth) <= curSubPic.getSubPicRight() &&
                           (posRB.y + pcv.minCUHeight) <= curSubPic.getSubPicBottom());
         }
-        if (boundaryCond)
-#else
-        if (((posRB.x + pcv.minCUWidth) < pcv.lumaWidth) && ((posRB.y + pcv.minCUHeight) < pcv.lumaHeight))
-#endif
-        {
+        if (boundaryCond) {
           Position posInCtu(posRB.x & pcv.maxCUWidthMask, posRB.y & pcv.maxCUHeightMask);
 
           if ((posInCtu.x + 4 < pcv.maxCUWidth) &&  // is not at the last column of CTU
@@ -2617,7 +2657,6 @@ void clipColPos(int &posX, int &posY, const PredictionUnit &pu) {
   int log2CtuSize = getLog2(pu.cs->sps->getCTUSize());
   int ctuX = ((puPos.x >> log2CtuSize) << log2CtuSize);
   int ctuY = ((puPos.y >> log2CtuSize) << log2CtuSize);
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
   int horMax;
   const SubPic &curSubPic = pu.slice->getPPS()->getSubPicFromPos(puPos);
   if (curSubPic.getTreatedAsPicFlag()) {
@@ -2625,9 +2664,6 @@ void clipColPos(int &posX, int &posY, const PredictionUnit &pu) {
   } else {
     horMax = std::min((int)pu.cs->pps->getPicWidthInLumaSamples() - 1, ctuX + (int)pu.cs->sps->getCTUSize() + 3);
   }
-#else
-  int horMax = std::min((int)pu.cs->pps->getPicWidthInLumaSamples() - 1, ctuX + (int)pu.cs->sps->getCTUSize() + 3);
-#endif
   int horMin = std::max((int)0, ctuX);
   int verMax = std::min((int)pu.cs->pps->getPicHeightInLumaSamples() - 1, ctuY + (int)pu.cs->sps->getCTUSize() - 1);
   int verMin = std::max((int)0, ctuY);
@@ -2689,6 +2725,15 @@ bool PU::getInterMergeSubPuMvpCand(const PredictionUnit &pu, MergeCtx &mrgCtx, b
   centerPos = Position{PosType(centerPos.x & mask), PosType(centerPos.y & mask)};
 
   // derivation of center motion parameters from the collocated CU
+  // here we should wait for colocated picture to be reconstructed
+  {
+    int row = centerPos.y >> pColPic->cs->pcv->maxCUHeightLog2;
+    int col = centerPos.x >> pColPic->cs->pcv->maxCUWidthLog2;
+    int counter = pColPic->m_rowMotionInfoCounter[row].get();
+    int widthInCtus = pColPic->cs->pcv->widthInCtus;
+    while (counter != widthInCtus && counter <= col)
+      counter = pColPic->m_rowMotionInfoCounter[row].waitForChange(counter);
+  }
   const MotionInfo &mi = pColPic->cs->getMotionInfo(centerPos);
 
   if (mi.isInter) {
@@ -2744,6 +2789,14 @@ bool PU::getInterMergeSubPuMvpCand(const PredictionUnit &pu, MergeCtx &mrgCtx, b
 
         colPos.x = colPos.x & mask;
         colPos.y = colPos.y & mask;
+        {
+          int row = colPos.y >> pColPic->cs->pcv->maxCUHeightLog2;
+          int col = colPos.x >> pColPic->cs->pcv->maxCUWidthLog2;
+          int counter = pColPic->m_rowMotionInfoCounter[row].get();
+          int widthInCtus = pColPic->cs->pcv->widthInCtus;
+          while (counter != widthInCtus && counter <= col)
+            counter = pColPic->m_rowMotionInfoCounter[row].waitForChange(counter);
+        }
         MotionInfo &colMi = pColPic->cs->getMotionInfo(colPos);
 
         if (colMi.isInter) {

@@ -54,9 +54,6 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <limits>
 
-const uint8_t ProbModelTables::m_RenormTable_32[32] = {6, 5, 4, 4, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2,
-                                                       1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-
 void BinProbModel::init(int qp, int initId) {
   int slope = (initId >> 3) - 4;
   int offset = ((initId & 7) * 18) + 1;

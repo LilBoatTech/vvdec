@@ -95,7 +95,7 @@ bool CABACReader::terminating_bit() {
 
 void CABACReader::remaining_bytes(bool noTrailingBytesExpected) {
   if (noTrailingBytesExpected) {
-    CHECK(0 != m_Bitstream->getNumBitsLeft(), "Bits left when not supposed");
+    //    CHECK(0 != m_Bitstream->getNumBitsLeft(), "Bits left when not supposed");
   } else {
     while (m_Bitstream->getNumBitsLeft()) {
       unsigned trailingNullByte = m_Bitstream->readByte();
@@ -113,8 +113,76 @@ void CABACReader::remaining_bytes(bool noTrailingBytesExpected) {
 //    bool  dt_implicit_qt_split( cs, pL, cuCtxL, pC, cuCtxC )
 //================================================================================
 
+void CABACReader::readAlf(CodingStructure& cs, unsigned int ctuRsAddr, const Partitioner& partitioner) {
+  const PreCalcValues& pcv = *cs.pcv;
+  int frame_width_in_ctus = pcv.widthInCtus;
+  int ry = ctuRsAddr / frame_width_in_ctus;
+  int rx = ctuRsAddr - ry * frame_width_in_ctus;
+  const Position pos(rx * cs.pcv->maxCUWidth, ry * cs.pcv->maxCUHeight);
+  bool leftAvail = cs.getCURestricted(pos.offset(-1, 0), pos, partitioner.currSliceIdx, partitioner.currTileIdx, CH_L) ? true : false;
+  bool aboveAvail = cs.getCURestricted(pos.offset(0, -1), pos, partitioner.currSliceIdx, partitioner.currTileIdx, CH_L) ? true : false;
+
+  int leftCTUAddr = leftAvail ? ctuRsAddr - 1 : -1;
+  int aboveCTUAddr = aboveAvail ? ctuRsAddr - frame_width_in_ctus : -1;
+  CtuAlfData& currAlfData = m_slice->getPic()->getCtuAlfData(ctuRsAddr);
+  // init currAlfData
+  // GCC_WARNING_DISABLE_class_memaccess
+  // memset(&currAlfData, 0, sizeof(currAlfData));
+  // GCC_WARNING_RESET
+  currAlfData.reset();
+  CtuAlfData leftAlfData, aboveAlfData;
+  if (leftAvail) leftAlfData = m_slice->getPic()->getCtuAlfData(leftCTUAddr);
+  if (aboveAvail) aboveAlfData = m_slice->getPic()->getCtuAlfData(aboveCTUAddr);
+  if (m_slice->getTileGroupAlfEnabledFlag(COMPONENT_Y)) {
+    for (int compIdx = 0; compIdx < MAX_NUM_COMPONENT; compIdx++) {
+      if (m_slice->getTileGroupAlfEnabledFlag((ComponentID)compIdx)) {
+        // uint8_t* ctbAlfFlag = m_slice->getPic()->getAlfCtuEnableFlag( compIdx );
+        int ctx = 0;
+        ctx += leftAlfData.alfCtuEnableFlag[compIdx];
+        ctx += aboveAlfData.alfCtuEnableFlag[compIdx];
+
+        currAlfData.alfCtuEnableFlag[compIdx] = m_BinDecoder.decodeBin(Ctx::ctbAlfFlag(compIdx * 3 + ctx));
+
+        if (isLuma((ComponentID)compIdx) && currAlfData.alfCtuEnableFlag[compIdx]) {
+          currAlfData.alfCtbFilterIndex = readAlfCtuFilterIndex2(cs, ctuRsAddr);
+        }
+
+        if (isChroma((ComponentID)compIdx)) {
+          const int apsIdx = m_slice->getTileGroupApsIdChroma();
+          CHECK(m_slice->getAlfAPSs()[apsIdx] == nullptr, "APS not initialized");
+          const AlfSliceParam& alfParam = m_slice->getAlfAPSs()[apsIdx]->getAlfAPSParam();
+          const int numAlts = alfParam.numAlternativesChroma;
+          currAlfData.alfCtuAlternative[compIdx - 1] = 0;
+          if (currAlfData.alfCtuEnableFlag[compIdx]) {
+            uint8_t decoded = 0;
+            while (decoded < numAlts - 1 && m_BinDecoder.decodeBin(Ctx::ctbAlfAlternative(compIdx - 1))) ++decoded;
+            currAlfData.alfCtuAlternative[compIdx - 1] = decoded;
+          }
+        }
+      }
+    }
+  }
+  for (int compIdx = 1; compIdx < getNumberValidComponents(cs.pcv->chrFormat); compIdx++) {
+    if (m_slice->getTileGroupCcAlfEnabledFlag(compIdx - 1)) {
+      int ctxt = 0;
+      ctxt += (leftAlfData.ccAlfFilterControl[compIdx - 1]) ? 1 : 0;
+      ctxt += (aboveAlfData.ccAlfFilterControl[compIdx - 1]) ? 1 : 0;
+      ctxt += (compIdx == COMPONENT_Cr) ? 3 : 0;
+      int idcVal = m_BinDecoder.decodeBin(Ctx::CcAlfFilterControlFlag(ctxt));
+      if (idcVal) {
+        const int apsIdx = compIdx == 1 ? m_slice->getTileGroupCcAlfCbApsId() : m_slice->getTileGroupCcAlfCrApsId();
+        const int filterCount = m_slice->getAlfAPSs()[apsIdx]->getCcAlfAPSParam().ccAlfFilterCount[compIdx - 1];
+        while ((idcVal != filterCount) && m_BinDecoder.decodeBinEP()) {
+          idcVal++;
+        }
+      }
+      currAlfData.ccAlfFilterControl[compIdx - 1] = idcVal;
+    }
+  }
+}
+
 bool CABACReader::coding_tree_unit(CodingStructure& cs, Slice* slice, const UnitArea& area, int (&qps)[2],
-                                   unsigned ctuRsAddr) {
+                                  unsigned ctuRsAddr) {
   m_slice = slice;
 
   CUCtx cuCtx(qps[CH_L]);
@@ -125,68 +193,10 @@ bool CABACReader::coding_tree_unit(CodingStructure& cs, Slice* slice, const Unit
   partitioner.modeType = MODE_TYPE_ALL;
 
   sao(cs, ctuRsAddr);
-
-  if (m_slice->getTileGroupAlfEnabledFlag(COMPONENT_Y)) {
-    const PreCalcValues& pcv = *cs.pcv;
-    int frame_width_in_ctus = pcv.widthInCtus;
-    int ry = ctuRsAddr / frame_width_in_ctus;
-    int rx = ctuRsAddr - ry * frame_width_in_ctus;
-    const Position pos(rx * cs.pcv->maxCUWidth, ry * cs.pcv->maxCUHeight);
-    bool leftAvail = cs.getCURestricted(pos.offset(-1, 0), pos, partitioner.currSliceIdx, partitioner.currTileIdx, CH_L)
-                         ? true
-                         : false;
-    bool aboveAvail =
-        cs.getCURestricted(pos.offset(0, -1), pos, partitioner.currSliceIdx, partitioner.currTileIdx, CH_L) ? true
-                                                                                                            : false;
-
-    int leftCTUAddr = leftAvail ? ctuRsAddr - 1 : -1;
-    int aboveCTUAddr = aboveAvail ? ctuRsAddr - frame_width_in_ctus : -1;
-
-    for (int compIdx = 0; compIdx < MAX_NUM_COMPONENT; compIdx++) {
-      if (m_slice->getTileGroupAlfEnabledFlag((ComponentID)compIdx)) {
-        uint8_t* ctbAlfFlag = m_slice->getPic()->getAlfCtuEnableFlag(compIdx);
-        int ctx = 0;
-        ctx += leftCTUAddr > -1 ? (ctbAlfFlag[leftCTUAddr] ? 1 : 0) : 0;
-        ctx += aboveCTUAddr > -1 ? (ctbAlfFlag[aboveCTUAddr] ? 1 : 0) : 0;
-
-        ctbAlfFlag[ctuRsAddr] = m_BinDecoder.decodeBin(Ctx::ctbAlfFlag(compIdx * 3 + ctx));
-
-        if (isLuma((ComponentID)compIdx) && ctbAlfFlag[ctuRsAddr]) {
-          readAlfCtuFilterIndex(cs, ctuRsAddr);
-        }
-
-        if (isChroma((ComponentID)compIdx)) {
-          const int apsIdx = m_slice->getTileGroupApsIdChroma();
-          CHECK(m_slice->getAlfAPSs()[apsIdx] == nullptr, "APS not initialized");
-          const AlfSliceParam& alfParam = m_slice->getAlfAPSs()[apsIdx]->getAlfAPSParam();
-          const int numAlts = alfParam.numAlternativesChroma;
-          uint8_t* ctbAlfAlternative = m_slice->getPic()->getAlfCtuAlternativeData(compIdx - 1);
-          ctbAlfAlternative[ctuRsAddr] = 0;
-
-          if (ctbAlfFlag[ctuRsAddr]) {
-            uint8_t decoded = 0;
-            while (decoded < numAlts - 1 && m_BinDecoder.decodeBin(Ctx::ctbAlfAlternative(compIdx - 1))) ++decoded;
-            ctbAlfAlternative[ctuRsAddr] = decoded;
-          }
-        }
-      }
-    }
-  }
-
-  for (int compIdx = 1; compIdx < getNumberValidComponents(cs.pcv->chrFormat); compIdx++) {
-    if (m_slice->getTileGroupCcAlfEnabledFlag(compIdx - 1)) {
-      const int apsIdx = compIdx == 1 ? m_slice->getTileGroupCcAlfCbApsId() : m_slice->getTileGroupCcAlfCrApsId();
-      const int filterCount = m_slice->getAlfAPSs()[apsIdx]->getCcAlfAPSParam().ccAlfFilterCount[compIdx - 1];
-
-      const Position lumaPos = area.lumaPos();
-
-      ccAlfFilterControlIdc(cs, ComponentID(compIdx), ctuRsAddr, m_slice->getPic()->getccAlfFilterControl(compIdx - 1),
-                            lumaPos, filterCount);
-    }
-  }
+  readAlf(cs, ctuRsAddr, partitioner);
 
   bool isLast = false;
-
+  
   if (partitioner.isDualITree && cs.pcv->chrFormat != CHROMA_400) {
     CUCtx cuCtxC(qps[CH_C]);
     Partitioner partitionerC;
@@ -233,10 +243,8 @@ bool CABACReader::dt_implicit_qt_split(CodingStructure& cs, Partitioner& partiti
     partitionerC.splitCurrArea(CU_QUAD_SPLIT, cs);
 
     bool lastSegment = false;
-
     do {
-      if (!lastSegment &&
-          cs.area.blocks[partitionerL.chType].contains(partitionerL.currArea().blocks[partitionerL.chType].pos())) {
+      if (cs.area.blocks[partitionerL.chType].contains(partitionerL.currArea().blocks[partitionerL.chType].pos())) {
         lastSegment = dt_implicit_qt_split(cs, partitionerL, cuCtxL, partitionerC, cuCtxC);
       }
     } while (partitionerL.nextPart(cs) && partitionerC.nextPart(cs));
@@ -251,8 +259,7 @@ bool CABACReader::dt_implicit_qt_split(CodingStructure& cs, Partitioner& partiti
   return isLast;
 }
 
-void CABACReader::readAlfCtuFilterIndex(CodingStructure& cs, unsigned ctuRsAddr) {
-  short* alfCtbFilterSetIndex = m_slice->getPic()->getAlfCtbFilterIndex();
+short CABACReader::readAlfCtuFilterIndex2(CodingStructure& cs, unsigned ctuRsAddr) {
   const unsigned numAps = m_slice->getTileGroupNumAps();
   const unsigned numAvailableFiltSets = numAps + NUM_FIXED_FILTER_SETS;
   uint32_t filtIndex = 0;
@@ -269,37 +276,7 @@ void CABACReader::readAlfCtuFilterIndex(CodingStructure& cs, unsigned ctuRsAddr)
     xReadTruncBinCode(filtIndex, NUM_FIXED_FILTER_SETS);
   }
 
-  alfCtbFilterSetIndex[ctuRsAddr] = filtIndex;
-}
-
-void CABACReader::ccAlfFilterControlIdc(CodingStructure& cs, const ComponentID compID, const int curIdx,
-                                        uint8_t* filterControlIdc, Position lumaPos, int filterCount) {
-  Position leftLumaPos = lumaPos.offset(-(int)cs.pcv->maxCUWidth, 0);
-  Position aboveLumaPos = lumaPos.offset(0, -(int)cs.pcv->maxCUWidth);
-  const uint32_t curSliceIdx = m_slice->getIndependentSliceIdx();
-  const uint32_t curTileIdx = cs.pps->getTileIdx(lumaPos);
-  bool leftAvail = cs.getCURestricted(leftLumaPos, lumaPos, curSliceIdx, curTileIdx, CH_L) ? true : false;
-  bool aboveAvail = cs.getCURestricted(aboveLumaPos, lumaPos, curSliceIdx, curTileIdx, CH_L) ? true : false;
-  int ctxt = 0;
-
-  if (leftAvail) {
-    ctxt += (filterControlIdc[curIdx - 1]) ? 1 : 0;
-  }
-  if (aboveAvail) {
-    ctxt += (filterControlIdc[curIdx - cs.pcv->widthInCtus]) ? 1 : 0;
-  }
-  ctxt += (compID == COMPONENT_Cr) ? 3 : 0;
-
-  int idcVal = m_BinDecoder.decodeBin(Ctx::CcAlfFilterControlFlag(ctxt));
-  if (idcVal) {
-    while ((idcVal != filterCount) && m_BinDecoder.decodeBinEP()) {
-      idcVal++;
-    }
-  }
-  filterControlIdc[curIdx] = idcVal;
-
-  DTRACE(g_trace_ctx, D_SYNTAX, "ccAlfFilterControlIdc() compID=%d pos=(%d,%d) ctxt=%d, filterCount=%d, idcVal=%d\n",
-         compID, lumaPos.x, lumaPos.y, ctxt, filterCount, idcVal);
+  return filtIndex;
 }
 
 //================================================================================
@@ -309,7 +286,7 @@ void CABACReader::ccAlfFilterControlIdc(CodingStructure& cs, const ComponentID c
 //================================================================================
 
 void CABACReader::sao(CodingStructure& cs, unsigned ctuRsAddr) {
-  SAOBlkParam& sao_ctu_pars = cs.getCtuData(ctuRsAddr).saoParam;
+  SAOBlkParam& sao_ctu_pars = cs.m_saoBlkParam[ctuRsAddr];
   sao_ctu_pars[COMPONENT_Y].modeIdc = SAO_MODE_OFF;
   sao_ctu_pars[COMPONENT_Cb].modeIdc = SAO_MODE_OFF;
   sao_ctu_pars[COMPONENT_Cr].modeIdc = SAO_MODE_OFF;
@@ -344,15 +321,23 @@ void CABACReader::sao(CodingStructure& cs, unsigned ctuRsAddr) {
     sao_merge_type += int(m_BinDecoder.decodeBin(Ctx::SaoMergeFlag())) << 1;
   }
   if (sao_merge_type >= 0) {
+    SAOBlkParam* mergeParam = nullptr;
+    if (sao_merge_type == SAO_MERGE_LEFT)
+      mergeParam = &cs.m_saoBlkParam[ctuRsAddr - 1];
+    else
+      mergeParam = &cs.m_saoBlkParam[ctuRsAddr - frame_width_in_ctus];
     if (slice_sao_luma_flag || slice_sao_chroma_flag) {
       sao_ctu_pars[COMPONENT_Y].modeIdc = SAO_MODE_MERGE;
       sao_ctu_pars[COMPONENT_Y].typeIdc = sao_merge_type;
+      sao_ctu_pars[COMPONENT_Y] = mergeParam->operator[](COMPONENT_Y);
     }
     if (slice_sao_chroma_flag) {
       sao_ctu_pars[COMPONENT_Cb].modeIdc = SAO_MODE_MERGE;
       sao_ctu_pars[COMPONENT_Cr].modeIdc = SAO_MODE_MERGE;
       sao_ctu_pars[COMPONENT_Cb].typeIdc = sao_merge_type;
       sao_ctu_pars[COMPONENT_Cr].typeIdc = sao_merge_type;
+      sao_ctu_pars[COMPONENT_Cb] = mergeParam->operator[](COMPONENT_Cb);
+      sao_ctu_pars[COMPONENT_Cr] = mergeParam->operator[](COMPONENT_Cr);
     }
     return;
   }
@@ -389,10 +374,10 @@ void CABACReader::sao(CodingStructure& cs, unsigned ctuRsAddr) {
     // sao_offset_abs
     int offset[4];
     const int maxOffsetQVal = SampleAdaptiveOffset::getMaxOffsetQVal(sps.getBitDepth(toChannelType(compID)));
-    offset[0] = (int)unary_max_eqprob(maxOffsetQVal);
-    offset[1] = (int)unary_max_eqprob(maxOffsetQVal);
-    offset[2] = (int)unary_max_eqprob(maxOffsetQVal);
-    offset[3] = (int)unary_max_eqprob(maxOffsetQVal);
+    offset[0] = (int)unary_max_eqprob(maxOffsetQVal) * (1 << m_offsetStepLog2[compID]);
+    offset[1] = (int)unary_max_eqprob(maxOffsetQVal) * (1 << m_offsetStepLog2[compID]);
+    offset[2] = (int)unary_max_eqprob(maxOffsetQVal) * (1 << m_offsetStepLog2[compID]);
+    offset[3] = (int)unary_max_eqprob(maxOffsetQVal) * (1 << m_offsetStepLog2[compID]);
 
     // band offset mode
     if (sao_pars.typeIdc == SAO_TYPE_START_BO) {
@@ -403,6 +388,7 @@ void CABACReader::sao(CodingStructure& cs, unsigned ctuRsAddr) {
         }
       }
       // sao_band_position
+      memset(sao_pars.offset, 0, sizeof(int) * MAX_NUM_SAO_CLASSES);
       sao_pars.typeAuxInfo = m_BinDecoder.decodeBinsEP(NUM_SAO_BO_CLASSES_LOG2);
       for (int k = 0; k < 4; k++) {
         sao_pars.offset[(sao_pars.typeAuxInfo + k) % MAX_NUM_SAO_CLASSES] = offset[k];
@@ -468,8 +454,7 @@ bool CABACReader::coding_tree(CodingStructure& cs, Partitioner& partitioner, CUC
     partitioner.splitCurrArea(split, cs);
 
     do {
-      if (!lastSegment &&
-          cs.area.blocks[partitioner.chType].contains(partitioner.currArea().blocks[partitioner.chType].pos())) {
+      if (!lastSegment && cs.area.blocks[partitioner.chType].contains(partitioner.currArea().blocks[partitioner.chType].pos())) {
         lastSegment = coding_tree(cs, partitioner, cuCtx);
       }
     } while (partitioner.nextPart(cs));
@@ -481,8 +466,7 @@ bool CABACReader::coding_tree(CodingStructure& cs, Partitioner& partitioner, CUC
       partitioner.treeType = TREE_C;
       partitioner.updateNeighbors(cs);
 
-      if (!lastSegment &&
-          cs.picture->blocks[partitioner.chType].contains(partitioner.currArea().blocks[partitioner.chType].pos())) {
+      if (!lastSegment && cs.picture->blocks[partitioner.chType].contains(partitioner.currArea().blocks[partitioner.chType].pos())) {
         lastSegment = coding_tree(cs, partitioner, cuCtx);
       } else {
         THROW("Unexpected behavior, not parsing chroma even though luma data is available!");
@@ -528,8 +512,7 @@ bool CABACReader::coding_tree(CodingStructure& cs, Partitioner& partitioner, CUC
                               chromaCentral.y << getComponentScaleY(COMPONENT_Cb, cu.chromaFormat));
     // derive chroma qp, but the chroma qp is saved in cuCtx.qp which is used for luma qp
     // therefore, after decoding the chroma CU, the cuCtx.qp shall be recovered to luma qp in order to decode next luma
-    // cu qp
-    //    const CodingUnit* colLumaCu = cs.getLumaCU( lumaRefPos );
+    // cu qp const CodingUnit* colLumaCu = cs.getLumaCU( lumaRefPos );
     const CodingUnit* colLumaCu = cs.getCU(lumaRefPos, CHANNEL_TYPE_LUMA);
     CHECK(colLumaCu == nullptr, "colLumaCU shall exist");
     lumaQPinLocalDualTree = cuCtx.qp;
@@ -547,7 +530,7 @@ bool CABACReader::coding_tree(CodingStructure& cs, Partitioner& partitioner, CUC
     cuCtx.qp = lumaQPinLocalDualTree;
   }
 
-  if (isChromaEnabled(cs.pcv->chrFormat))
+  if (isChromaEnabled(cs.pcv->chrFormat)) {
     for (TransformUnit& tu : TUTraverser(&cu.firstTU, cu.lastTU->next)) {
       if (tu.Cb().valid()) {
         QpParam cQP(tu, COMPONENT_Cb, false);
@@ -559,6 +542,7 @@ bool CABACReader::coding_tree(CodingStructure& cs, Partitioner& partitioner, CUC
         tu.chromaQp[COMPONENT_Cr - 1] = cQP.Qp(false);
       }
     }
+  }
 
   cu.slice->incNumCu();
   if (cu.predMode() != MODE_INTER || cu.ciipFlag()) cu.slice->incNumIntraCu();
@@ -570,7 +554,6 @@ bool CABACReader::coding_tree(CodingStructure& cs, Partitioner& partitioner, CUC
   } else
     DTRACE(g_trace_ctx, D_QP, "x=%d, y=%d, w=%d, h=%d, qp=%d\n", cu.Y().x, cu.Y().y, cu.Y().width, cu.Y().height,
            cu.qp);
-
 #endif
   return isLastCtu;
 }
@@ -606,7 +589,7 @@ ModeType CABACReader::mode_constraint(CodingStructure& cs, Partitioner& partitio
 
   if (val == LDT_MODE_TYPE_SIGNAL) {
     const int ctxIdx = DeriveCtx::CtxModeConsFlag(cs, partitioner);
-    const bool flag = m_BinDecoder.decodeBin(Ctx::ModeConsFlag(ctxIdx));
+    const bool flag = m_BinDecoder.decodeBin(Ctx::ModeConsFlag(ctxIdx));  // non_inter_flag
 
     DTRACE(g_trace_ctx, D_SYNTAX, "mode_cons_flag() flag=%d\n", flag);
     return flag ? MODE_TYPE_INTRA : MODE_TYPE_INTER;
@@ -663,7 +646,7 @@ PartSplit CABACReader::split_cu_mode(CodingStructure& cs, Partitioner& partition
     if (canNo && isSplit)
 #endif  // endif
 
-      isSplit = m_BinDecoder.decodeBin(Ctx::SplitFlag(ctxSplit));
+      isSplit = m_BinDecoder.decodeBin(Ctx::SplitFlag(ctxSplit));  // split_cu_flag
   }
 
   DTRACE(g_trace_ctx, D_SYNTAX, "split_cu_mode() ctx=%d split=%d\n", ctxSplit, isSplit);
@@ -689,7 +672,7 @@ PartSplit CABACReader::split_cu_mode(CodingStructure& cs, Partitioner& partition
 #if ENABLE_TRACING
     if (isQt && canBtt)
 #endif
-      isQt = m_BinDecoder.decodeBin(Ctx::SplitQtFlag(ctxQtSplit));
+      isQt = m_BinDecoder.decodeBin(Ctx::SplitQtFlag(ctxQtSplit));  // split_qt_flag
   }
 
   DTRACE(g_trace_ctx, D_SYNTAX, "split_cu_mode() ctx=%d qt=%d\n", ctxQtSplit, isQt);
@@ -1062,9 +1045,6 @@ void CABACReader::cu_bcw_flag(CodingUnit& cu) {
     return;
   }
 
-  CHECK(!(BCW_NUM > 1 && (BCW_NUM == 2 || (BCW_NUM & 0x01) == 1)),
-        " !( BCW_NUM > 1 && ( BCW_NUM == 2 || ( BCW_NUM & 0x01 ) == 1 ) ) ");
-
   uint32_t idx = 0;
   uint32_t symbol = m_BinDecoder.decodeBin(Ctx::BcwIdx(0));
   int32_t numBcw = (cu.slice->getCheckLDC()) ? 5 : 3;
@@ -1373,10 +1353,8 @@ bool CABACReader::end_of_ctu(CodingUnit& cu, CUCtx& cuCtx) {
       ((rbPos.y & cu.cs->pcv->maxCUHeightMask) == 0 || rbPos.y == cu.cs->pps->getPicHeightInLumaSamples()) &&
       (!CU::isSepTree(cu) || cu.chromaFormat == CHROMA_400 || isChroma(cu.chType()))) {
     cuCtx.isDQPCoded = (cu.cs->pps->getUseDQP() && !cuCtx.isDQPCoded);
-
     return false;
   }
-
   return false;
 }
 
@@ -1465,10 +1443,6 @@ void CABACReader::prediction_unit(PredictionUnit& pu) {
     RefPicList eCurRefList = (RefPicList)(pu.smvdMode() - 1);
     pu.mv[1 - eCurRefList][0].set(-pu.mv[eCurRefList][0].hor, -pu.mv[eCurRefList][0].ver);
     pu.refIdx[1 - eCurRefList] = pu.slice->getSymRefIdx(1 - eCurRefList);
-
-    CHECKD(!((pu.mv[1 - eCurRefList][0].getHor() >= MVD_MIN) && (pu.mv[1 - eCurRefList][0].getHor() <= MVD_MAX)) ||
-               !((pu.mv[1 - eCurRefList][0].getVer() >= MVD_MIN) && (pu.mv[1 - eCurRefList][0].getVer() <= MVD_MAX)),
-           "Illegal MVD value");
   }
 }
 
@@ -1492,7 +1466,7 @@ void CABACReader::smvd_mode(PredictionUnit& pu) {
 void CABACReader::subblock_merge_flag(CodingUnit& cu) {
   // cu.setAffineFlag( false );
 
-  if (!cu.slice->isIntra() && (cu.slice->getPicHeader()->getMaxNumAffineMergeCand() > 0) && cu.lwidth() >= 8 &&
+  if (/* !cu.slice->isIntra() && */ (cu.slice->getPicHeader()->getMaxNumAffineMergeCand() > 0) && cu.lwidth() >= 8 &&
       cu.lheight() >= 8) {
     unsigned ctxId = DeriveCtx::CtxAffineFlag(cu);
     cu.setAffineFlag(m_BinDecoder.decodeBin(Ctx::SubblockMergeFlag(ctxId)));
@@ -1526,14 +1500,6 @@ void CABACReader::general_merge_flag(PredictionUnit& pu) {
 
   DTRACE(g_trace_ctx, D_SYNTAX, "merge_flag() merge=%d pos=(%d,%d) size=%dx%d\n", pu.mergeFlag() ? 1 : 0,
          pu.lumaPos().x, pu.lumaPos().y, pu.lumaSize().width, pu.lumaSize().height);
-
-  // if( pu.mergeFlag() && CU::isIBC( pu ) )
-  //{
-  //  pu.setMmvdFlag        ( false );
-  //  pu.setRegularMergeFlag( false );
-  //
-  //  return;
-  //}
 }
 
 void CABACReader::merge_data(PredictionUnit& pu) {
@@ -1601,8 +1567,6 @@ void CABACReader::merge_idx(PredictionUnit& pu) {
 
     const int maxNumGeoCand = pu.cs->sps->getMaxNumGeoCand();
     const int numCandminus2 = maxNumGeoCand - 2;
-
-    CHECK(maxNumGeoCand < 2, "Incorrect max number of geo candidates");
 
     int mergeCand0 = 0;
     int mergeCand1 = 0;
@@ -1980,9 +1944,12 @@ void CABACReader::transform_unit(TransformUnit& tu, CUCtx& cuCtx, Partitioner& p
     }
 
     if (cbfLuma) {
+      cu.cs->allocateTUResidualBuffer(tu, COMPONENT_Y);
       residual_coding(tu, COMPONENT_Y, cuCtx);
     }
     if (!lumaOnly) {
+      cu.cs->allocateTUResidualBuffer(tu, COMPONENT_Cb);
+      cu.cs->allocateTUResidualBuffer(tu, COMPONENT_Cr);
       for (ComponentID compID = COMPONENT_Cb; compID <= COMPONENT_Cr; compID = ComponentID(compID + 1)) {
         if (TU::getCbf(tu, compID)) {
           residual_coding(tu, compID, cuCtx);
@@ -1993,7 +1960,6 @@ void CABACReader::transform_unit(TransformUnit& tu, CUCtx& cuCtx, Partitioner& p
 }
 
 void CABACReader::cu_qp_delta(CodingUnit& cu, int predQP, int8_t& qp) {
-  CHECK(predQP == std::numeric_limits<int>::max(), "Invalid predicted QP");
   int qpY = predQP;
   int DQp = unary_max_symbol(Ctx::DeltaQP(), Ctx::DeltaQP(1), CU_DQP_TU_CMAX);
   if (DQp >= CU_DQP_TU_CMAX) {
@@ -2015,7 +1981,7 @@ void CABACReader::cu_qp_delta(CodingUnit& cu, int predQP, int8_t& qp) {
 
 void CABACReader::cu_chroma_qp_offset(CodingUnit& cu) {
   // cu_chroma_qp_offset_flag
-  int length = cu.cs->pps->getPpsRangeExtension().getChromaQpOffsetListLen();
+  int length = cu.cs->pps->getChromaQpOffsetListLen();
   unsigned qpAdj = m_BinDecoder.decodeBin(Ctx::ChromaQpAdjFlag());
   if (qpAdj && length > 1) {
     // cu_chroma_qp_offset_idx
@@ -2034,7 +2000,7 @@ void CABACReader::cu_chroma_qp_offset(CodingUnit& cu) {
 //    bool        transform_skip_flag     ( tu, compID )
 //    RDPCMMode   explicit_rdpcm_mode     ( tu, compID )
 //    int         last_sig_coeff          ( coeffCtx )
-//    void        residual_coding_subblock( coeffCtx )
+//    void        residual_coding_normal  ( coeffCtx )
 //================================================================================
 
 void CABACReader::joint_cb_cr(TransformUnit& tu, const int cbfMask) {
@@ -2055,114 +2021,20 @@ void CABACReader::residual_coding(TransformUnit& tu, ComponentID compID, CUCtx& 
          tu.blocks[compID].compID, tu.blocks[compID].x, tu.blocks[compID].y, tu.blocks[compID].width,
          tu.blocks[compID].height, cu.predMode());
 
-  if (compID == COMPONENT_Cr && tu.jointCbCr == 3) return;
+  if (compID == COMPONENT_Cr && tu.jointCbCr == 3) {
+    return;
+  }
 
   // parse transform skip and explicit rdpcm mode
   ts_flag(tu, compID);
 
-  if (tu.mtsIdx[compID] == MTS_SKIP && !cu.slice->getTSResidualCodingDisabledFlag()) {
+  bool isNotMtsSKkip = (tu.mtsIdx[compID] != MTS_SKIP);
+  if (!isNotMtsSKkip && !cu.slice->getTSResidualCodingDisabledFlag()) {
     residual_codingTS(tu, compID);
     return;
   }
 
-  // determine sign hiding
-  bool signHiding = m_slice->getSignDataHidingEnabledFlag();
-  CoeffCodingContext cctx(tu, compID, signHiding);
-  // parse last coeff position
-  cctx.setScanPosLast(last_sig_coeff(cctx, tu, compID));
-  if (tu.mtsIdx[compID] != MTS_SKIP && tu.blocks[compID].height >= 4 && tu.blocks[compID].width >= 4) {
-    const int maxLfnstPos = ((tu.blocks[compID].height == 4 && tu.blocks[compID].width == 4) ||
-                             (tu.blocks[compID].height == 8 && tu.blocks[compID].width == 8))
-                                ? 7
-                                : 15;
-    cuCtx.violatesLfnstConstrained[toChannelType(compID)] |= cctx.scanPosLast() > maxLfnstPos;
-  }
-  if (tu.mtsIdx[compID] != MTS_SKIP && tu.blocks[compID].height >= 4 && tu.blocks[compID].width >= 4) {
-    const int lfnstLastScanPosTh = isLuma(compID) ? LFNST_LAST_SIG_LUMA : LFNST_LAST_SIG_CHROMA;
-    cuCtx.lfnstLastScanPos |= cctx.scanPosLast() >= lfnstLastScanPosTh;
-  }
-  if (isLuma(compID) && tu.mtsIdx[compID] != MTS_SKIP) {
-    cuCtx.mtsLastScanPos |= cctx.scanPosLast() >= 1;
-  }
-
-  // parse subblocks
-  const int stateTransTab = (m_slice->getDepQuantEnabledFlag() ? 32040 : 0);
-  int state = 0;
-
-  TCoeffSig* coeff = m_cffTmp;
-  ::memset(coeff, 0, (cctx.maxNumCoeff() + 2 * cctx.width()) * sizeof(TCoeffSig));
-
-  int* sigPos = m_blkPos;
-  int sigSubSetId = 0;
-
-  int maxX = 0;
-  int maxY = 0;
-
-  const bool skipBlkPreCond = compID == COMPONENT_Y && tu.cu->cs->sps->getUseMTS() && tu.cu->sbtInfo() != 0 &&
-                              tu.blocks[compID].height <= 32 && tu.blocks[compID].width <= 32;
-  for (int subSetId = (cctx.scanPosLast() >> cctx.log2CGSize()); subSetId >= 0; subSetId--) {
-    cctx.initSubblock(subSetId);
-
-    if (skipBlkPreCond) {
-      if ((cctx.height() == 32 && cctx.cgPosY() >= (16 >> cctx.log2CGHeight())) ||
-          (cctx.width() == 32 && cctx.cgPosX() >= (16 >> cctx.log2CGWidth()))) {
-        continue;
-      }
-    }
-
-    int numSigCoef = cctx.checkTplBnd()
-                         ? residual_coding_subblock<true>(cctx, coeff, stateTransTab, state, m_signVal[sigSubSetId],
-                                                          sigPos, m_sub1[sigSubSetId])
-                         : residual_coding_subblock<false>(cctx, coeff, stateTransTab, state, m_signVal[sigSubSetId],
-                                                           sigPos, m_sub1[sigSubSetId]);
-
-    if (numSigCoef > 0) {
-      m_numSig[sigSubSetId] = numSigCoef;
-      sigSubSetId++;
-
-      maxX = std::max(maxX, cctx.cgPosX());
-      maxY = std::max(maxY, cctx.cgPosY());
-    }
-    if (isLuma(compID) && cctx.isSigGroup() && (cctx.cgPosY() > 3 || cctx.cgPosX() > 3)) {
-      cuCtx.violatesMtsCoeffConstraint = true;
-    }
-  }
-
-  if (cctx.bdpcm()) {
-    maxX = cctx.width();
-    maxY = cctx.height();
-  } else {
-    maxX++;
-    maxY++;
-    maxX <<= cctx.log2CGWidth();
-    maxY <<= cctx.log2CGHeight();
-  }
-
-  // if not TU split, otherwise already memset
-  PelBuf pb = cu.cs->getRecoBuf(CompArea(compID, tu.blocks[compID].pos(), Size(maxX, maxY)));
-  pb.memset(0);
-
-  const bool depQuant = tu.cu->slice->getDepQuantEnabledFlag() && (tu.mtsIdx[compID] != MTS_SKIP);
-  CoeffSigBuf dstCff = pb;
-
-  for (sigPos--, sigSubSetId--; sigSubSetId >= 0; sigSubSetId--) {
-    unsigned numNonZero = m_numSig[sigSubSetId];
-    unsigned signPattern = m_signVal[sigSubSetId];
-    unsigned sub1Pattern = m_sub1[sigSubSetId];
-
-    //===== set final coefficents =====
-    for (unsigned k = 0; k < numNonZero; k++, sigPos--, signPattern >>= 1, sub1Pattern >>= 1) {
-      const int blkPos = *sigPos;
-      const int posX = cctx.posX(blkPos);
-      const int posY = cctx.posY(blkPos);
-
-      int AbsCoeff = depQuant ? (coeff[blkPos] << 1) - (((int)sub1Pattern) & 1) : coeff[blkPos];
-      dstCff.at(posX, posY) = (signPattern & 1u ? -AbsCoeff : AbsCoeff);
-    }
-  }
-
-  tu.maxScanPosX[compID] = maxX - 1;
-  tu.maxScanPosY[compID] = maxY - 1;
+  residual_coding_normal(tu, compID, cuCtx);
 }
 
 void CABACReader::ts_flag(TransformUnit& tu, ComponentID compID) {
@@ -2293,364 +2165,579 @@ void CABACReader::residual_lfnst_mode(CodingUnit& cu, CUCtx& cuCtx) {
          (int)cu.lfnstIdx());
 }
 
-int CABACReader::last_sig_coeff(CoeffCodingContext& cctx, TransformUnit& tu, ComponentID compID) {
+int CABACReader::last_sig_coeff(TransformUnit& tu, ComponentID compID, int width, int height, int log2BlockWidth,
+                                int log2BlockHeight) {
   unsigned PosLastX = 0, PosLastY = 0;
-  unsigned maxLastPosX = cctx.maxLastPosX();
-  unsigned maxLastPosY = cctx.maxLastPosY();
+  unsigned maxLastPosX = g_uiGroupIdx[std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, width) - 1];
+  unsigned maxLastPosY = g_uiGroupIdx[std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, height) - 1];
 
-  if (isLuma(compID) && tu.cu->cs->sps->getUseMTS() && tu.cu->sbtInfo() != 0 && tu.blocks[compID].width <= 32 &&
-      tu.blocks[compID].height <= 32) {
-    maxLastPosX = (tu.blocks[compID].width == 32) ? g_uiGroupIdx[15] : maxLastPosX;
-    maxLastPosY = (tu.blocks[compID].height == 32) ? g_uiGroupIdx[15] : maxLastPosY;
+  ChannelType chType = toChannelType(compID);
+  int lastShiftX, lastShiftY, lastOffsetX, lastOffsetY;
+  if (chType == CHANNEL_TYPE_CHROMA) {
+    lastOffsetX = lastOffsetY = 0;
+    lastShiftX = Clip3(0, 2, width >> 3);
+    lastShiftY = Clip3(0, 2, height >> 3);
+  } else {
+    static const int prefix_ctx[8] = {0, 0, 0, 3, 6, 10, 15, 21};
+    lastOffsetX = prefix_ctx[log2BlockWidth];
+    lastOffsetY = prefix_ctx[log2BlockHeight];
+    lastShiftX = (log2BlockWidth + 1) >> 2;
+    lastShiftY = (log2BlockHeight + 1) >> 2;
+  }
+
+  if (isLuma(compID) && tu.cu->cs->sps->getUseMTS() && tu.cu->sbtInfo() != 0 && width <= 32 && height <= 32) {
+    maxLastPosX = (width == 32) ? g_uiGroupIdx[15] : maxLastPosX;
+    maxLastPosY = (height == 32) ? g_uiGroupIdx[15] : maxLastPosY;
   }
 
   for (; PosLastX < maxLastPosX; PosLastX++) {
-    if (!m_BinDecoder.decodeBin(cctx.lastXCtxId(PosLastX))) {
+    if (!m_BinDecoder.decodeBin((Ctx::LastX[chType])(lastOffsetX + (PosLastX >> lastShiftX)))) {
       break;
     }
   }
   for (; PosLastY < maxLastPosY; PosLastY++) {
-    if (!m_BinDecoder.decodeBin(cctx.lastYCtxId(PosLastY))) {
+    if (!m_BinDecoder.decodeBin((Ctx::LastY[chType])((lastOffsetY + (PosLastY >> lastShiftY))))) {
       break;
     }
   }
   if (PosLastX > 3) {
-    uint32_t uiTemp = 0;
     uint32_t uiCount = (PosLastX - 2) >> 1;
-    for (int i = uiCount - 1; i >= 0; i--) {
-      uiTemp += m_BinDecoder.decodeBinEP() << i;
-    }
+    uint32_t uiTemp = m_BinDecoder.decodeBinsEP(uiCount);
     PosLastX = g_uiMinInGroup[PosLastX] + uiTemp;
   }
   if (PosLastY > 3) {
-    uint32_t uiTemp = 0;
     uint32_t uiCount = (PosLastY - 2) >> 1;
-    for (int i = uiCount - 1; i >= 0; i--) {
-      uiTemp += m_BinDecoder.decodeBinEP() << i;
-    }
+    uint32_t uiTemp = m_BinDecoder.decodeBinsEP(uiCount);
     PosLastY = g_uiMinInGroup[PosLastY] + uiTemp;
   }
 
-  int blkPos;
-  { blkPos = PosLastX + (PosLastY * cctx.width()); }
+  int blkPos = PosLastX + (PosLastY * width);
 
-  for (int scanPos = 0; scanPos < cctx.maxNumCoeff() - 1; scanPos++) {
-    if (blkPos == cctx.blockPos(scanPos)) {
-      return scanPos;
-    }
-  }
-
-  return cctx.maxNumCoeff() - 1;
+  return blkPos;
 }
 
-template <bool checkBnd>
-int CABACReader::residual_coding_subblock(CoeffCodingContext& cctx, TCoeffSig* coeff, const int stateTransTable,
-                                          int& state, unsigned& signPattern, int*& sigPos, unsigned& stateVal) {
-  // NOTE: All coefficients of the subblock must be set to zero before calling this function
+unsigned CABACReader::sigCtxIdAbs(const uint8_t* nbCoeff, const int state, const int diag, int width,
+                                  ChannelType chType, int& tmplCpDiag, int& tmplCpSum1) {
+  constexpr int kNbCtxBits = 5;  // Chosen to fit the max sum 5 neighbor values
+  static constexpr int8_t kSigCtxOffset[2][6] = {{8, 8, 4, 4, 4, 0}, {4, 4, 0, 0, 0, 0}};
+  const int coeffStride = width + 2;
 
-  //===== init =====
-  const int minSubPos = cctx.minSubPos();
-  const bool isLast = cctx.isLast();
-  int firstSigPos = (isLast ? cctx.scanPosLast() : cctx.maxSubPos());
-  int nextSigPos = firstSigPos;
+  int nbCoeffSum =
+      nbCoeff[1] + nbCoeff[2] + nbCoeff[coeffStride] + nbCoeff[coeffStride + 1] + nbCoeff[coeffStride << 1];
+  int diag2 = diag > 5 ? 5 : diag;
+  int sumAbs = nbCoeffSum & ((1 << kNbCtxBits) - 1);
 
-  //===== decode significant_coeffgroup_flag =====
-  bool sigGroup = (isLast || !minSubPos);
-  if (!sigGroup) {
-    sigGroup = m_BinDecoder.decodeBin(cctx.sigGroupCtxId());
-  }
-  if (sigGroup) {
-    cctx.setSigGroup();
-  } else {
-    return 0;
-  }
+  int ctxOfs = kSigCtxOffset[chType][diag2];
+  int base = Ctx::SigFlag[chType + ((std::max(0, state - 1)) << 1)]();
+  ctxOfs += std::min((sumAbs + 1) >> 1, 3);
 
-  // make sure only takes up single L1 block
-  ALIGN_DATA(64, int gt1Pos[16]);
-  int* gt1PosPtr = gt1Pos;
+  tmplCpDiag = diag;
+  tmplCpSum1 = nbCoeffSum >> kNbCtxBits;
+  return base + ctxOfs;
+}
 
-  //===== decode absolute values =====
-  const int inferSigPos = nextSigPos != cctx.scanPosLast() ? (cctx.isNotFirst() ? minSubPos : -1) : nextSigPos;
-  int firstNZPos = nextSigPos;
-  int lastNZPos = -1;
-  int numNonZero = 0, numGt1 = 0;
-  int remRegBins = cctx.regBinLimit();
-  int gt1Mode1 = 0;
-  unsigned gt2Mask = 0;
-  stateVal = 0;
+uint8_t CABACReader::ctxOffsetAbs(ChannelType chType, int tmplCpDiag, int tmplCpSum1) {
+  static constexpr int8_t kSigCtxOffset[2][11] = {{15, 10, 10, 5, 5, 5, 5, 5, 5, 5, 0},
+                                                  {5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
 
-  for (; nextSigPos >= minSubPos && remRegBins >= 4; nextSigPos--) {
-    int blkPos = cctx.blockPos(nextSigPos);
-    bool sigFlag = (!numNonZero && nextSigPos == inferSigPos);
+  //      int offset = 0;
+  //      if( m_tmplCpDiag != -1 )
+  //      {
+  //          int idx = m_tmplCpDiag > 10 ? 10 : m_tmplCpDiag;
+  //          offset  = std::min( m_tmplCpSum1, 4 ) + 1;
+  //          offset += kSigCtxOffset[m_chType][idx];
+  //      }
 
-    if (!sigFlag) {
-      const unsigned sigCtxId = cctx.sigCtxIdAbs<checkBnd>(blkPos, coeff, state);
-      sigFlag = m_BinDecoder.decodeBin(sigCtxId);
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "sig_bin() bin=%d ctx=%d\n", sigFlag, sigCtxId);
-      remRegBins--;
+  int idx = ((uint32_t)tmplCpDiag) > ((uint32_t)10) ? 10 : tmplCpDiag;
+  int offset = tmplCpSum1 > 4 ? 5 : (tmplCpSum1 + 1);
+  offset += kSigCtxOffset[chType][idx];
+
+  return uint8_t(offset);
+}
+
+unsigned CABACReader::templateAbsSum(int blkPos, const TCoeffSig* coeff, int baseLevel, int width, int height,
+                                     int log2BlockWidth) {
+  const uint32_t posY = blkPos >> log2BlockWidth;
+  const uint32_t posX = blkPos & ((1 << log2BlockWidth) - 1);
+  const TCoeffSig* pData = coeff + posX + (posY << log2BlockWidth);
+  int sum = 0;
+
+  if (posX + 2 < width) {
+    sum += pData[1];
+    sum += pData[2];
+    if (posY + 1 < height) {
+      sum += pData[width + 1];
     }
+  } else if (posX + 1 < width) {
+    sum += pData[1];
+    if (posY + 1 < height) {
+      sum += pData[width + 1];
+    }
+  }
+  if (posY + 2 < height) {
+    sum += pData[width];
+    sum += pData[width << 1];
+  } else if (posY + 1 < height) {
+    sum += pData[width];
+  }
+  return std::max(std::min(sum - 5 * baseLevel, 31), 0);
+}
 
-    if (sigFlag) {
-      uint8_t ctxOff = cctx.ctxOffsetAbs();
-      stateVal = ((state >> 1) & 1) | (stateVal << 1);
-      *sigPos++ = blkPos;
-      numNonZero++;
-      firstNZPos = nextSigPos;
-      lastNZPos = std::max<int>(lastNZPos, nextSigPos);
-      unsigned gt1Flag = m_BinDecoder.decodeBin(cctx.greater1CtxIdAbs(ctxOff));
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "gt1_flag() bin=%d ctx=%d\n", gt1Flag, cctx.greater1CtxIdAbs(ctxOff));
-      remRegBins--;
+void CABACReader::residual_coding_normal(TransformUnit& tu, ComponentID compID, CUCtx& cuCtx) {
+  const int width = tu.block(compID).width;
+  const int height = tu.block(compID).height;
+  int log2BlockWidth = getLog2(width);
+  int log2BlockHeight = getLog2(height);
+  const int log2CGWidth = g_log2SbbSize[log2BlockWidth][log2BlockHeight][0];
+  const int log2CGHeight = g_log2SbbSize[log2BlockWidth][log2BlockHeight][1];
+  const int log2CGSize = log2CGWidth + log2CGHeight;
+  const int widthInGroups = std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, width) >> log2CGWidth;
+  const int heightInGroups = std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, height) >> log2CGHeight;
+  const int log2WidthInGroups = getLog2(widthInGroups);
+  int remRegBins =
+      ((TU::getTbAreaAfterCoefZeroOut(tu, compID) *
+        (isLuma(compID) ? MAX_TU_LEVEL_CTX_CODED_BIN_CONSTRAINT_LUMA : MAX_TU_LEVEL_CTX_CODED_BIN_CONSTRAINT_CHROMA)) >>
+       4);
+  bool isBdPcm = isLuma(compID) ? tu.cu->bdpcmMode() : tu.cu->bdpcmModeChroma();
+  int maxLog2TrDRange = tu.cu->cs->sps->getMaxLog2TrDynamicRange(toChannelType(compID));
+  const unsigned* scan2blk =
+      g_scanOrder[SCAN_GROUPED_4x4][SCAN_DIAG][g_sizeIdxInfo.idxFrom(width)][g_sizeIdxInfo.idxFrom(height)];
+  const unsigned* scanCG = g_scanOrder[SCAN_UNGROUPED][SCAN_DIAG][g_sizeIdxInfo.idxFrom(widthInGroups)]
+                                      [g_sizeIdxInfo.idxFrom(heightInGroups)];
+  const unsigned* blk2scan =
+      g_rasterOrder[SCAN_GROUPED_4x4][SCAN_DIAG][g_sizeIdxInfo.idxFrom(width)][g_sizeIdxInfo.idxFrom(height)];
+  const ChannelType chType = toChannelType(compID);
 
-      unsigned gt2Flag = 0;
+  int maxX = 0, maxY = 0, state = 0, sigSubSetId = 0, tmplCpDiag = -1, tmplCpSum1 = -1;
+  const int stateTransTable = (m_slice->getDepQuantEnabledFlag() ? 32040 : 0);
+  bool isNotMtsSKkip = (tu.mtsIdx[compID] != MTS_SKIP);
 
-      if (gt1Flag) {
-        unsigned parFlag = m_BinDecoder.decodeBin(cctx.parityCtxIdAbs(ctxOff));
-        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "par_flag() bin=%d ctx=%d\n", parFlag, cctx.parityCtxIdAbs(ctxOff));
-        numGt1++;
-        remRegBins--;
-        gt2Flag = m_BinDecoder.decodeBin(cctx.greater2CtxIdAbs(ctxOff));
-        gt2Mask |= (gt2Flag << (numGt1 - 1));
-        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "gt2_flag() bin=%d ctx=%d\n", gt2Flag, cctx.greater2CtxIdAbs(ctxOff));
-        remRegBins--;
-        *gt1PosPtr++ = blkPos;
-        coeff[blkPos] = 2 + parFlag + (gt2Flag << 1);
-        state = (stateTransTable >> ((state << 2) + (parFlag << 1))) & 3;
-      } else {
-        coeff[blkPos] = 1;
-        state = (stateTransTable >> ((state << 2) + 2)) & 3;
+  // parse last coeff position
+  const int blkPosLast = last_sig_coeff(tu, compID, width, height, log2BlockWidth, log2BlockHeight);
+  const int scanPosLast = blk2scan[blkPosLast];
+  if (isNotMtsSKkip && height >= 4 && width >= 4) {
+    const int maxLfnstPos = ((height == 4 && width == 4) || (height == 8 && width == 8)) ? 7 : 15;
+    cuCtx.violatesLfnstConstrained[toChannelType(compID)] |= scanPosLast > maxLfnstPos;
+    cuCtx.lfnstLastScanPos |= scanPosLast >= 1;  // LFNST_LAST_SIG_LUMA and LFNST_LAST_SIG_CHROMA both is 1
+  }
+  if (isLuma(compID) && isNotMtsSKkip) {
+    cuCtx.mtsLastScanPos |= scanPosLast >= 1;
+  }
+
+  // parse subblocks
+  int* sigPos = m_blkPos;
+  TCoeffSig* coeff = m_cffTmp;
+  ::memset(coeff, 0, width * height * sizeof(TCoeffSig));
+  uint8_t* nbCoeff = m_nbCoeff;
+  memset(nbCoeff, 0, sizeof(uint8_t) * (width + 2) * (height + 2));
+
+  const bool skipBlkPreCond =
+      compID == COMPONENT_Y && tu.cu->cs->sps->getUseMTS() && tu.cu->sbtInfo() != 0 && height <= 32 && width <= 32;
+
+  std::bitset<MLS_GRP_NUM> sigCoeffGroupFlag;
+  for (int subSetId = (scanPosLast >> log2CGSize); subSetId >= 0; subSetId--) {
+    int subSetPos = scanCG[subSetId];
+    int subSetPosY = subSetPos >> log2WidthInGroups;
+    int subSetPosX = subSetPos - (subSetPosY * widthInGroups);
+
+    if (skipBlkPreCond) {
+      if ((height == 32 && subSetPosY >= (16 >> log2CGHeight)) || (width == 32 && subSetPosX >= (16 >> log2CGWidth))) {
+        continue;
       }
-    } else {
-      state = (stateTransTable >> (state << 2)) & 3;
+    }
+    unsigned& stateVal = m_sub1[sigSubSetId];
+    unsigned& signPattern = m_signVal[sigSubSetId];
+    int stateTmp = state;
+    constexpr int kNbCtxBits = 5;  // Chosen to fit the max sum 5 neighbor values
+    // NOTE: All coefficients of the subblock must be set to zero before calling this function
+
+    //===== init =====
+    const int minSubPos = subSetId << log2CGSize;
+    const bool isLast = (scanPosLast >> log2CGSize) == subSetId;
+    int firstSigPos = (isLast ? scanPosLast : (minSubPos + (1 << log2CGSize) - 1));
+    int nextSigPos = firstSigPos;
+
+    //===== decode significant_coeffgroup_flag =====
+    bool sigGroup = (isLast || !minSubPos);
+    if (!sigGroup) {
+      const bool lastHorGrp = subSetPosX == widthInGroups - 1;
+      const bool lastVerGrp = subSetPosY == heightInGroups - 1;
+      unsigned sigRight = unsigned(!lastHorGrp ? sigCoeffGroupFlag[subSetPos + 1] : false);
+      unsigned sigLower = unsigned(!lastVerGrp ? sigCoeffGroupFlag[subSetPos + widthInGroups] : false);
+      int sigGroupCtxId = Ctx::SigCoeffGroup[chType](sigRight | sigLower);
+      sigGroup = m_BinDecoder.decodeBin(sigGroupCtxId);
+      if (!sigGroup) continue;
+    }
+    sigCoeffGroupFlag.set(subSetPos);
+
+    // make sure only takes up single L1 block
+    ALIGN_DATA(64, int gt1Pos[16]);
+    int* gt1PosPtr = gt1Pos;
+
+    //===== decode absolute values =====
+    const int inferSigPos = nextSigPos != scanPosLast ? (subSetId != 0 ? minSubPos : -1) : nextSigPos;
+    int firstNZPos = nextSigPos;
+    int lastNZPos = -1;
+    int numNonZero = 0, numGt1 = 0;
+    int gt1Mode1 = 0;
+    stateVal = 0;
+
+    for (; nextSigPos >= minSubPos && remRegBins >= 4; nextSigPos--) {
+      int blkPos = scan2blk[nextSigPos];
+      bool sigFlag = (!numNonZero && nextSigPos == inferSigPos);
+
+      const uint32_t posY = blkPos >> log2BlockWidth;
+      const uint32_t posX = blkPos & ((1 << log2BlockWidth) - 1);
+      uint8_t* nbCoeffTemp = nbCoeff + posX + posY * (width + 2);
+      if (!sigFlag) {
+        const unsigned sigCtxId =
+            sigCtxIdAbs(nbCoeffTemp, stateTmp, posX + posY, width, chType, tmplCpDiag, tmplCpSum1);
+        sigFlag = m_BinDecoder.decodeBin(sigCtxId);
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "sig_bin() bin=%d ctx=%d\n", sigFlag, sigCtxId);
+        remRegBins--;
+      }
+
+      if (sigFlag) {
+        uint8_t ctxOff = ctxOffsetAbs(chType, tmplCpDiag, tmplCpSum1);
+        stateVal = ((stateTmp >> 1) & 1) | (stateVal << 1);
+        *sigPos++ = blkPos;
+        numNonZero++;
+        firstNZPos = nextSigPos;
+        lastNZPos = std::max<int>(lastNZPos, nextSigPos);
+        unsigned gt1Flag = m_BinDecoder.decodeBin((Ctx::GtxFlag[chType + 2])(ctxOff));
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "gt1_flag() bin=%d ctx=%d\n", gt1Flag, (Ctx::GtxFlag[chType + 2])(ctxOff));
+        remRegBins--;
+
+        unsigned gt2Flag = 0;
+
+        if (gt1Flag) {
+          unsigned parFlag = m_BinDecoder.decodeBin((Ctx::ParFlag[chType])(ctxOff));
+          DTRACE(g_trace_ctx, D_SYNTAX_RESI, "par_flag() bin=%d ctx=%d\n", parFlag, (Ctx::ParFlag[chType])(ctxOff));
+          numGt1++;
+          remRegBins--;
+          gt2Flag = m_BinDecoder.decodeBin((Ctx::GtxFlag[chType])(ctxOff));
+          DTRACE(g_trace_ctx, D_SYNTAX_RESI, "gt2_flag() bin=%d ctx=%d\n", gt2Flag, (Ctx::GtxFlag[chType])(ctxOff));
+          remRegBins--;
+          *gt1PosPtr++ = blkPos;
+          int val = 2 + parFlag + (gt2Flag << 1);
+          stateTmp = (stateTransTable >> ((stateTmp << 2) + (parFlag << 1))) & 3;
+
+          coeff[blkPos] = val;
+          nbCoeffTemp[0] = (val | ((val - 1) << kNbCtxBits));
+        } else {
+          stateTmp = (stateTransTable >> ((stateTmp << 2) + 2)) & 3;
+          // val = 1
+          coeff[blkPos] = 1;
+          nbCoeffTemp[0] = 1;
+        }
+      } else {
+        stateTmp = (stateTransTable >> (stateTmp << 2)) & 3;
+      }
+    }
+
+    gt1Mode1 = numGt1;
+
+    gt1PosPtr = gt1Pos;
+
+    //===== 3rd PASS: Go-rice codes =====
+    for (int k = 0; k < gt1Mode1; k++, gt1PosPtr++) {
+      if (coeff[*gt1PosPtr] >= 4) {
+        int sumAll = templateAbsSum(*gt1PosPtr, coeff, 4, width, height, log2BlockWidth);
+        unsigned ricePar = g_auiGoRiceParsCoeff[sumAll];
+
+        int rem = m_BinDecoder.decodeRemAbsEP(ricePar, COEF_REMAIN_BIN_REDUCTION, maxLog2TrDRange);
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "rem_val() bin=%d ctx=%d\n", rem, ricePar);
+        coeff[*gt1PosPtr] += (rem << 1);
+      }
+    }
+
+    //===== coeff bypass ====
+    for (; nextSigPos >= minSubPos; nextSigPos--) {
+      int sub1 = (stateTmp >> 1) & 1;
+      int blkPos = scan2blk[nextSigPos];
+      int sumAll = templateAbsSum(blkPos, coeff, 0, width, height, log2BlockWidth);
+      int rice = g_auiGoRiceParsCoeff[sumAll];
+      int pos0 = g_auiGoRicePosCoeff0(stateTmp, rice);
+      int rem = m_BinDecoder.decodeRemAbsEP(rice, COEF_REMAIN_BIN_REDUCTION, maxLog2TrDRange);
+      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "rem_val() bin=%d ctx=%d\n", rem, rice);
+      TCoeffSig tcoeff = (rem == pos0 ? 0 : rem < pos0 ? rem + 1 : rem);
+      stateTmp = (stateTransTable >> ((stateTmp << 2) + ((tcoeff & 1) << 1))) & 3;
+      if (tcoeff) {
+        coeff[blkPos] = tcoeff;
+        stateVal = sub1 | (stateVal << 1);
+        *sigPos++ = blkPos;
+        numNonZero++;
+        firstNZPos = nextSigPos;
+        lastNZPos = std::max<int>(lastNZPos, nextSigPos);
+      }
+    }
+
+    //===== decode sign's =====
+    bool signHiding = m_slice->getSignDataHidingEnabledFlag();
+    const unsigned numSigns = ((signHiding && (lastNZPos - firstNZPos >= SBH_THRESHOLD)) ? numNonZero - 1 : numNonZero);
+    signPattern = m_BinDecoder.decodeBinsEP(numSigns);
+    if (numNonZero > numSigns) {
+      sigPos -= numNonZero;
+      int sumAbs = 0;
+      for (int i = 0; i < numNonZero; i++) {
+        const int blockPos = *sigPos;
+        sumAbs += coeff[blockPos];
+        sigPos++;
+      }
+      signPattern <<= 1;
+      signPattern += (sumAbs & 1);
+    }
+    state = stateTmp;
+
+    if (numNonZero > 0) {
+      m_numSig[sigSubSetId] = numNonZero;
+      sigSubSetId++;
+
+      maxX = std::max(maxX, subSetPosX);
+      maxY = std::max(maxY, subSetPosY);
+    }
+    if (isLuma(compID) && sigCoeffGroupFlag[subSetPos] && (subSetPosY > 3 || subSetPosX > 3)) {
+      cuCtx.violatesMtsCoeffConstraint = true;
     }
   }
 
-  cctx.setRegBinLimit(remRegBins);
+  if (isBdPcm) {
+    maxX = width;
+    maxY = height;
+  } else {
+    maxX++;
+    maxY++;
+    maxX <<= log2CGWidth;
+    maxY <<= log2CGHeight;
+  }
 
-  gt1Mode1 = numGt1;
+  PelBuf pb = tu.getResiBuf(compID);
+  pb.memset(0);
 
-  gt1PosPtr = gt1Pos;
+  const bool depQuant = tu.cu->slice->getDepQuantEnabledFlag() && isNotMtsSKkip;
+  CoeffSigBuf dstCff = pb;
 
-  //===== 3rd PASS: Go-rice codes =====
-  for (int k = 0; k < gt1Mode1; k++, gt2Mask >>= 1, gt1PosPtr++) {
-    if (gt2Mask & 1) {
-      int sumAll = cctx.templateAbsSum(*gt1PosPtr, coeff, 4);
-      unsigned ricePar = g_auiGoRiceParsCoeff[sumAll];
+  CHECKD(dstCff.stride != width, "dstCff.stride must be equal to tu width");
 
-      int rem = m_BinDecoder.decodeRemAbsEP(ricePar, COEF_REMAIN_BIN_REDUCTION, cctx.maxLog2TrDRange());
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "rem_val() bin=%d ctx=%d\n", rem, ricePar);
-      coeff[*gt1PosPtr] += (rem << 1);
+  for (sigPos--, sigSubSetId--; sigSubSetId >= 0; sigSubSetId--) {
+    unsigned numNonZero = m_numSig[sigSubSetId];
+    unsigned signPattern = m_signVal[sigSubSetId];
+    unsigned sub1Pattern = m_sub1[sigSubSetId];
+
+    //===== set final coefficents =====
+    for (unsigned k = 0; k < numNonZero; k++, sigPos--, signPattern >>= 1, sub1Pattern >>= 1) {
+      const int blkPos = *sigPos;
+      int AbsCoeff = depQuant ? (coeff[blkPos] << 1) - ((static_cast<int>(sub1Pattern)) & 1) : coeff[blkPos];
+      dstCff.buf[blkPos] = (signPattern & 1u ? -AbsCoeff : AbsCoeff);
     }
   }
 
-  //===== coeff bypass ====
-  for (; nextSigPos >= minSubPos; nextSigPos--) {
-    int sub1 = (state >> 1) & 1;
-    int blkPos = cctx.blockPos(nextSigPos);
-    int sumAll = cctx.templateAbsSum(blkPos, coeff, 0);
-    int rice = g_auiGoRiceParsCoeff[sumAll];
-    int pos0 = g_auiGoRicePosCoeff0(state, rice);
-    int rem = m_BinDecoder.decodeRemAbsEP(rice, COEF_REMAIN_BIN_REDUCTION, cctx.maxLog2TrDRange());
-    DTRACE(g_trace_ctx, D_SYNTAX_RESI, "rem_val() bin=%d ctx=%d\n", rem, rice);
-    TCoeffSig tcoeff = (rem == pos0 ? 0 : rem < pos0 ? rem + 1 : rem);
-    state = (stateTransTable >> ((state << 2) + ((tcoeff & 1) << 1))) & 3;
-    if (tcoeff) {
-      coeff[blkPos] = tcoeff;
-      stateVal = sub1 | (stateVal << 1);
-      *sigPos++ = blkPos;
-      numNonZero++;
-      firstNZPos = nextSigPos;
-      lastNZPos = std::max<int>(lastNZPos, nextSigPos);
-    }
-  }
-
-  //===== decode sign's =====
-  const unsigned numSigns = (cctx.hideSign(firstNZPos, lastNZPos) ? numNonZero - 1 : numNonZero);
-  signPattern = m_BinDecoder.decodeBinsEP(numSigns);
-  if (numNonZero > numSigns) {
-    sigPos -= numNonZero;
-    int sumAbs = 0;
-    for (int i = 0; i < numNonZero; i++) {
-      const int blockPos = *sigPos;
-      sumAbs += coeff[blockPos];
-      sigPos++;
-    }
-    signPattern <<= 1;
-    signPattern += (sumAbs & 1);
-  }
-  return numNonZero;
+  tu.maxScanPosX[compID] = maxX - 1;
+  tu.maxScanPosY[compID] = maxY - 1;
 }
 
 void CABACReader::residual_codingTS(TransformUnit& tu, ComponentID compID) {
-  DTRACE(g_trace_ctx, D_SYNTAX, "residual_codingTS() etype=%d pos=(%d,%d) size=%dx%d\n", tu.blocks[compID].compID,
-         tu.blocks[compID].x, tu.blocks[compID].y, tu.blocks[compID].width, tu.blocks[compID].height);
-
-  // if not TU split, otherwise already memset
-  PelBuf pb = tu.cu->cs->getRecoBuf(tu.blocks[compID]);
-  pb.memset(0);
-
-  // init coeff coding context
-  CoeffCodingContext cctx(tu, compID, false);
-  TCoeffSig* coeff = m_cffTmp;
-  ::memset(coeff, 0, cctx.maxNumCoeff() * sizeof(TCoeffSig));
-
-  int maxCtxBins = (cctx.maxNumCoeff() * 7) >> 2;
-  cctx.setNumCtxBins(maxCtxBins);
+  const int width = tu.block(compID).width;
+  const int height = tu.block(compID).height;
+  int log2BlockWidth = getLog2(width);
+  int log2BlockHeight = getLog2(height);
+  const int log2CGWidth = g_log2SbbSize[log2BlockWidth][log2BlockHeight][0];
+  const int log2CGHeight = g_log2SbbSize[log2BlockWidth][log2BlockHeight][1];
+  const int log2CGSize = log2CGWidth + log2CGHeight;
+  const int widthInGroups = std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, width) >> log2CGWidth;
+  const int heightInGroups = std::min<unsigned>(JVET_C0024_ZERO_OUT_TH, height) >> log2CGHeight;
+  const int log2WidthInGroups = getLog2(widthInGroups);
+  int remRegBins = ((width * height) * 7) >> 2;
+  bool isBdPcm = isLuma(compID) ? tu.cu->bdpcmMode() : tu.cu->bdpcmModeChroma();
+  int maxLog2TrDRange = tu.cu->cs->sps->getMaxLog2TrDynamicRange(toChannelType(compID));
+  const unsigned* scan2blk =
+      g_scanOrder[SCAN_GROUPED_4x4][SCAN_DIAG][g_sizeIdxInfo.idxFrom(width)][g_sizeIdxInfo.idxFrom(height)];
+  const unsigned* scanCG = g_scanOrder[SCAN_UNGROUPED][SCAN_DIAG][g_sizeIdxInfo.idxFrom(widthInGroups)]
+                                      [g_sizeIdxInfo.idxFrom(heightInGroups)];
+  const int last_group = ((width * height) - 1) >> log2CGSize;
 
   int maxX = 0;
   int maxY = 0;
 
-  for (int subSetId = 0; subSetId <= (cctx.maxNumCoeff() - 1) >> cctx.log2CGSize(); subSetId++) {
-    cctx.initSubblock(subSetId);
-    residual_coding_subblockTS(cctx, coeff, tu.cu->cs->getRecoBuf(tu.block(compID)), maxX, maxY);
+  PelBuf dstcoeff = tu.getResiBuf(compID);
+  dstcoeff.memset(0);
+
+  CHECKD(dstcoeff.stride != tu.block(compID).width, "dstcoeff.stride must be equal to tu width");
+
+  TCoeffSig* coeff = dstcoeff.buf;
+  std::bitset<MLS_GRP_NUM> sigCoeffGroupFlag;
+  for (int subSetId = 0; subSetId <= last_group; subSetId++) {
+    int subSetPos = scanCG[subSetId];
+    int subSetPosY = subSetPos >> log2WidthInGroups;
+    int subSetPosX = subSetPos - (subSetPosY * widthInGroups);
+
+    // NOTE: All coefficients of the subblock must be set to zero before calling this function
+    //===== init =====
+    int firstSigPos = subSetId << log2CGSize;
+    const int maxSubPos = firstSigPos + (1 << log2CGSize) - 1;
+    int nextSigPos = firstSigPos;
+    unsigned signPattern = 0;
+
+    //===== decode significant_coeffgroup_flag =====
+    bool sigGroup = (subSetId == last_group) && sigCoeffGroupFlag.none();
+    if (!sigGroup) {
+      unsigned sigLeft = unsigned(subSetPosX > 0 ? sigCoeffGroupFlag[subSetPos - 1] : false);
+      unsigned sigAbove = unsigned(subSetPosY > 0 ? sigCoeffGroupFlag[subSetPos - widthInGroups] : false);
+      sigGroup = m_BinDecoder.decodeBin(Ctx::TsSigCoeffGroup(sigLeft + sigAbove));
+      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_sigGroup() bin=%d ctx=%d\n", sigGroup,
+             Ctx::TsSigCoeffGroup(sigLeft + sigAbove));
+    }
+    if (sigGroup) {
+      sigCoeffGroupFlag.set(subSetPos);
+    } else {
+      continue;
+    }
+
+    //===== decode absolute values =====
+    const int inferSigPos = maxSubPos;
+    int numNonZero = 0;
+    int sigBlkPos[1 << MLS_CG_SIZE];
+
+    int lastScanPosPass1 = firstSigPos - 1;
+    int lastScanPosPass2 = -1;
+    for (; nextSigPos <= maxSubPos && remRegBins >= 4; nextSigPos++) {
+      int blkPos = scan2blk[nextSigPos];
+      const uint32_t posY = blkPos >> log2BlockWidth;
+      const uint32_t posX = blkPos & ((1 << log2BlockWidth) - 1);
+      TCoeffSig* coeffTemp = coeff + posX + posY * width;
+      unsigned sigFlag = (!numNonZero && nextSigPos == inferSigPos);
+
+      int ctxLeft = 0;
+      int ctxTop = 0;
+      if (!sigFlag) {
+        ctxLeft = (posX > 0) && (coeffTemp[-1] != 0);
+        ctxTop = (posY > 0) && (coeffTemp[-width] != 0);
+        const unsigned sigCtxId = Ctx::TsSigFlag(ctxLeft + ctxTop);
+        sigFlag = m_BinDecoder.decodeBin(sigCtxId);
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_sig_bin() bin=%d ctx=%d\n", sigFlag, sigCtxId);
+        remRegBins--;
+      }
+
+      if (sigFlag) {
+        //===== decode sign's =====
+        int sign;
+        int ctxSignLeft = 0;
+        int ctxSignTop = 0;
+        ctxSignLeft = ctxLeft ? (coeffTemp[-1] > 0 ? 1 : -1) : 0;
+        ctxSignTop = ctxTop ? (coeffTemp[-width] > 0 ? 1 : -1) : 0;
+        const int sumCtxSign = ctxSignLeft + ctxSignTop;
+        int ctxSign = sumCtxSign > 0 ? 1 : sumCtxSign < 0 ? 2 : 0;
+        ctxSign += (isBdPcm ? 3 : 0);
+
+        const unsigned signCtxId = Ctx::TsResidualSign(ctxSign);
+        sign = m_BinDecoder.decodeBin(signCtxId);
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "sign() bin=%d ctx=%d  nextSigPos=%d  blkPos=%d\n", sign, signCtxId,
+               nextSigPos, blkPos);
+        remRegBins--;
+
+        signPattern += (sign << numNonZero);
+        sigBlkPos[numNonZero++] = nextSigPos;
+
+        unsigned gt1Flag;
+        const int ctxVal = isBdPcm ? 3 : (ctxLeft + ctxTop);
+        const unsigned gt1CtxId = Ctx::TsLrg1Flag(ctxVal);
+        gt1Flag = m_BinDecoder.decodeBin(gt1CtxId);
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_gt1_flag() bin=%d ctx=%d\n", gt1Flag, gt1CtxId);
+        remRegBins--;
+
+        int val = 1;
+        if (gt1Flag) {
+          val += 1;
+          val += m_BinDecoder.decodeBin(Ctx::TsParFlag(0));
+          DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_par_flag() bin=%d ctx=%d\n", val - 2, Ctx::TsParFlag(0));
+          remRegBins--;
+        }
+        coeff[blkPos] = sign ? -val : val;
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "coeff[ blkPos ]=%d  blkPos=%d\n", coeff[blkPos], blkPos);
+      }
+      lastScanPosPass1 = nextSigPos;
+    }
+
+    //===== 2nd PASS: gt2 =====
+    for (int idx = 0; idx < numNonZero && remRegBins >= 4; idx++) {
+      int scanPos = sigBlkPos[idx];
+      TCoeffSig& tcoeff = coeff[scan2blk[scanPos]];
+      tcoeff = abs(tcoeff);
+      int cutoffVal = 2;
+      while (tcoeff >= cutoffVal && cutoffVal <= 8) {
+        unsigned gt2Flag;
+        gt2Flag = m_BinDecoder.decodeBin(Ctx::TsGtxFlag(cutoffVal >> 1));
+        tcoeff += (gt2Flag << 1);
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_gt%d_flag() bin=%d ctx=%d sp=%d coeff=%d\n", i, gt2Flag,
+               Ctx::TsGtxFlag(cutoffVal >> 1), scanPos, tcoeff);
+        remRegBins--;
+        cutoffVal += 2;
+      }
+      lastScanPosPass2 = scanPos;
+    }
+
+    //===== 3rd PASS: Go-rice codes =====
+    int scanPos;
+    for (int idx = 0; idx < numNonZero; idx++) {
+      int scanPos = sigBlkPos[idx];
+      int blkPos = scan2blk[scanPos];
+      TCoeffSig& tcoeff = coeff[blkPos];
+
+      tcoeff = abs(tcoeff);
+      int cutoffVal = (scanPos <= lastScanPosPass2 ? 10 : 2);
+
+      if (tcoeff >= cutoffVal) {
+        int rem = m_BinDecoder.decodeRemAbsEP(1, COEF_REMAIN_BIN_REDUCTION, maxLog2TrDRange);
+        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_rem_val() bin=%d ctx=%d sp=%d\n", rem, rice, scanPos);
+        tcoeff += (rem << 1);
+      }
+      if (!isBdPcm) {
+        if (tcoeff > 0) {
+          const uint32_t posY = blkPos >> log2BlockWidth;
+          const uint32_t posX = blkPos & ((1 << log2BlockWidth) - 1);
+          const TCoeffSig* data = coeff + posX + posY * width;
+          int rightPixel = posX > 0 ? data[-1] : 0;
+          int belowPixel = posY > 0 ? data[-width] : 0;
+          rightPixel = abs(rightPixel);
+          belowPixel = abs(belowPixel);
+          int pred1 = std::max(rightPixel, belowPixel);
+          tcoeff = (tcoeff == 1 && pred1 > 0) ? pred1 : (tcoeff - (tcoeff <= pred1));
+        }
+      }
+
+      if (tcoeff) {
+        const uint32_t posY = blkPos >> log2BlockWidth;
+        const uint32_t posX = blkPos & ((1 << log2BlockWidth) - 1);
+        maxX = std::max<int>(maxX, posX);
+        maxY = std::max<int>(maxY, posY);
+        coeff[blkPos] = (signPattern & 1u ? -tcoeff : tcoeff);
+        signPattern >>= 1;
+      }
+    }
+
+    for (scanPos = lastScanPosPass1 + 1; scanPos <= maxSubPos; scanPos++) {
+      int blkPos = scan2blk[scanPos];
+      TCoeffSig& tcoeff = coeff[blkPos];
+      int rem = m_BinDecoder.decodeRemAbsEP(1, COEF_REMAIN_BIN_REDUCTION, maxLog2TrDRange);
+      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_rem_val() bin=%d ctx=%d sp=%d\n", rem, rice, scanPos);
+      tcoeff += rem;
+      if (tcoeff) {
+        int sign = m_BinDecoder.decodeBinEP();
+        const uint32_t posY = blkPos >> log2BlockWidth;
+        const uint32_t posX = blkPos & ((1 << log2BlockWidth) - 1);
+        maxX = std::max<int>(maxX, posX);
+        maxY = std::max<int>(maxY, posY);
+        coeff[blkPos] = (sign ? -tcoeff : tcoeff);
+      }
+    }
   }
 
-  if (cctx.bdpcm()) {
-    tu.maxScanPosX[compID] = cctx.width();
-    tu.maxScanPosY[compID] = cctx.height();
+  if (isBdPcm) {
+    tu.maxScanPosX[compID] = width;
+    tu.maxScanPosY[compID] = height;
   } else {
     tu.maxScanPosX[compID] = maxX;
     tu.maxScanPosY[compID] = maxY;
-  }
-}
-
-void CABACReader::residual_coding_subblockTS(CoeffCodingContext& cctx, TCoeffSig* coeff, CoeffSigBuf dstcoeff,
-                                             int& maxX, int& maxY) {
-  // TODO: awi, profile and optimize similar to residual_coding_subblock(...)
-
-  // NOTE: All coefficients of the subblock must be set to zero before calling this function
-  //===== init =====
-  const int minSubPos = cctx.maxSubPos();
-  int firstSigPos = cctx.minSubPos();
-  int nextSigPos = firstSigPos;
-  unsigned signPattern = 0;
-
-  //===== decode significant_coeffgroup_flag =====
-  bool sigGroup = cctx.isLastSubSet() && cctx.noneSigGroup();
-  if (!sigGroup) {
-    sigGroup = m_BinDecoder.decodeBin(cctx.sigGroupCtxId(true));
-    DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_sigGroup() bin=%d ctx=%d\n", sigGroup, cctx.sigGroupCtxId());
-  }
-  if (sigGroup) {
-    cctx.setSigGroup();
-  } else {
-    return;
-  }
-
-  //===== decode absolute values =====
-  const int inferSigPos = minSubPos;
-  int numNonZero = 0;
-  int sigBlkPos[1 << MLS_CG_SIZE];
-
-  int lastScanPosPass1 = -1;
-  int lastScanPosPass2 = -1;
-  for (; nextSigPos <= minSubPos && cctx.numCtxBins() >= 4; nextSigPos++) {
-    int blkPos = cctx.blockPos(nextSigPos);
-    unsigned sigFlag = (!numNonZero && nextSigPos == inferSigPos);
-
-    if (!sigFlag) {
-      const unsigned sigCtxId = cctx.sigCtxIdAbsTS(blkPos, coeff);
-      sigFlag = m_BinDecoder.decodeBin(sigCtxId);
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_sig_bin() bin=%d ctx=%d\n", sigFlag, sigCtxId);
-      cctx.decNumCtxBins(1);
-    }
-
-    if (sigFlag) {
-      //===== decode sign's =====
-      int sign;
-      const unsigned signCtxId = cctx.signCtxIdAbsTS(blkPos, coeff, cctx.bdpcm());
-      sign = m_BinDecoder.decodeBin(signCtxId);
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "sign() bin=%d ctx=%d  nextSigPos=%d  blkPos=%d\n", sign, signCtxId,
-             nextSigPos, blkPos);
-      cctx.decNumCtxBins(1);
-
-      signPattern += (sign << numNonZero);
-
-      sigBlkPos[numNonZero++] = blkPos;
-
-      unsigned gt1Flag;
-      const unsigned gt1CtxId = cctx.lrg1CtxIdAbsTS(blkPos, coeff, cctx.bdpcm());
-      gt1Flag = m_BinDecoder.decodeBin(gt1CtxId);
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_gt1_flag() bin=%d ctx=%d\n", gt1Flag, gt1CtxId);
-      cctx.decNumCtxBins(1);
-
-      unsigned parFlag = 0;
-      if (gt1Flag) {
-        parFlag = m_BinDecoder.decodeBin(cctx.parityCtxIdAbsTS());
-        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_par_flag() bin=%d ctx=%d\n", parFlag, cctx.parityCtxIdAbsTS());
-        cctx.decNumCtxBins(1);
-      }
-      coeff[blkPos] = (sign ? -1 : 1) * (1 + parFlag + gt1Flag);
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "coeff[ blkPos ]=%d  blkPos=%d\n", coeff[blkPos], blkPos);
-    }
-    lastScanPosPass1 = nextSigPos;
-  }
-
-  int cutoffVal = 2;
-  int numGtBins = 4;
-
-  //===== 2nd PASS: gt2 =====
-  for (int scanPos = firstSigPos; scanPos <= minSubPos && cctx.numCtxBins() >= 4; scanPos++) {
-    TCoeffSig& tcoeff = coeff[cctx.blockPos(scanPos)];
-    cutoffVal = 2;
-    for (int i = 0; i < numGtBins; i++) {
-      if (tcoeff < 0) {
-        tcoeff = -tcoeff;
-      }
-
-      if (tcoeff >= cutoffVal) {
-        unsigned gt2Flag;
-        gt2Flag = m_BinDecoder.decodeBin(cctx.greaterXCtxIdAbsTS(cutoffVal >> 1));
-        tcoeff += (gt2Flag << 1);
-        DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_gt%d_flag() bin=%d ctx=%d sp=%d coeff=%d\n", i, gt2Flag,
-               cctx.greaterXCtxIdAbsTS(cutoffVal >> 1), scanPos, tcoeff);
-        cctx.decNumCtxBins(1);
-      }
-      cutoffVal += 2;
-    }
-    lastScanPosPass2 = scanPos;
-  }
-  //===== 3rd PASS: Go-rice codes =====
-  for (int scanPos = firstSigPos; scanPos <= minSubPos; scanPos++) {
-    TCoeffSig& tcoeff = coeff[cctx.blockPos(scanPos)];
-
-    cutoffVal = (scanPos <= lastScanPosPass2 ? 10 : (scanPos <= lastScanPosPass1 ? 2 : 0));
-    if (tcoeff < 0) {
-      tcoeff = -tcoeff;
-    }
-
-    if (tcoeff >= cutoffVal) {
-      int rice = cctx.templateAbsSumTS(cctx.blockPos(scanPos), coeff);
-      int rem = m_BinDecoder.decodeRemAbsEP(rice, COEF_REMAIN_BIN_REDUCTION, cctx.maxLog2TrDRange());
-      DTRACE(g_trace_ctx, D_SYNTAX_RESI, "ts_rem_val() bin=%d ctx=%d sp=%d\n", rem, rice, scanPos);
-      tcoeff += (scanPos <= lastScanPosPass1) ? (rem << 1) : rem;
-      if (tcoeff && scanPos > lastScanPosPass1) {
-        int blkPos = cctx.blockPos(scanPos);
-        int sign = m_BinDecoder.decodeBinEP();
-        signPattern += (sign << numNonZero);
-        sigBlkPos[numNonZero++] = blkPos;
-      }
-    }
-    if (!cctx.bdpcm() && cutoffVal) {
-      if (tcoeff > 0) {
-        int rightPixel, belowPixel;
-        cctx.neighTS(rightPixel, belowPixel, cctx.blockPos(scanPos), coeff);
-        tcoeff = cctx.decDeriveModCoeff(rightPixel, belowPixel, tcoeff);
-      }
-    }
-  }
-
-  //===== set final coefficents =====
-  for (unsigned k = 0; k < numNonZero; k++) {
-    int AbsCoeff = coeff[sigBlkPos[k]];
-    int blkPos = sigBlkPos[k];
-    const int posX = cctx.posX(blkPos);
-    const int posY = cctx.posY(blkPos);
-    maxX = std::max<int>(maxX, posX);
-    maxY = std::max<int>(maxY, posY);
-
-    dstcoeff.at(posX, posY) = (signPattern & 1u ? -AbsCoeff : AbsCoeff);
-    coeff[sigBlkPos[k]] = (signPattern & 1u ? -AbsCoeff : AbsCoeff);
-    signPattern >>= 1;
   }
 }
 

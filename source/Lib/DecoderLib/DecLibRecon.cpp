@@ -47,13 +47,11 @@ THE POSSIBILITY OF SUCH DAMAGE.
 /** \file     DecLibRecon.cpp
     \brief    decoder class
 */
-
+#include <atomic>
 #include "DecLib.h"
-
+#include "Utilities/threadpool.h"
 #include "CommonLib/TrQuant.h"
-#if ENABLE_SIMD_TCOEFF_OPS
-#  include "CommonLib/TrQuant_EMT.h"
-#endif
+#include "CommonLib/TrQuant_EMT.h"
 #include "CommonLib/InterPrediction.h"
 #include "CommonLib/IntraPrediction.h"
 #include "CommonLib/Unit.h"
@@ -96,35 +94,123 @@ extern __itt_counter itt_frame_counter;
 
 //! \ingroup DecoderLib
 //! \{
-
-void CommonTaskParam::reset(CodingStructure& cs, TaskType ctuStartState, int tasksPerLine, bool doALF) {
-  this->cs = &cs;
-
-  const int heightInCtus = cs.pcv->heightInCtus;
-  CHECKD(!ctuStates.empty() && std::any_of(ctuStates.begin(), ctuStates.end(), [](CtuState& s) { return s != DONE; }),
-         "some CTUs of previous pic not done");
-  ctuStates = std::vector<CtuState>(heightInCtus * tasksPerLine);
-  for (auto& ctu : ctuStates) {
-    ctu.store(ctuStartState);
-  }
-
-  this->perLineMiHist = std::vector<MotionHist>(heightInCtus);
-  this->dmvrTriggers = std::vector<Barrier>(heightInCtus);
-
-  this->doALF = doALF;
-  this->alfPrepared.lock();
-}
-
 DecLibRecon::DecLibRecon() {
+    m_rowDependencyBitmap = nullptr;
+    m_frameParseRowBitmap = nullptr;
+    m_numWords = 0;
+    m_numRows = 0;
+  m_currFuncBitDepth = -1;
+
 #if ENABLE_SIMD_OPT_BUFFER
   g_pelBufOP.initPelBufOpsX86();
 #endif
-#if ENABLE_SIMD_TCOEFF_OPS
-  g_tCoeffOps.initTCoeffOps();
-#endif
 }
 
-void DecLibRecon::create(NoMallocThreadPool* threadPool, unsigned instanceId) {
+void DecLibRecon::decodeFrame() {
+  m_sPerLineMiHist.resize(m_currDecompPic->cs->pcv->heightInCtus);
+
+  // here to performa to decode a frame
+  int lines = m_currDecompPic->cs->pcv->heightInCtus;
+  int w = m_currDecompPic->cs->pcv->widthInCtus;
+  CodingStructure& cs = *m_currDecompPic->cs;
+  if (cs.sps->getUseALF()) {
+    cs.picture->m_finalBuffer.createFromBuf(m_tmpBuf);
+  } else if (cs.sps->getUseWrapAround())
+    cs.picture->m_finalBuffer.createFromBuf(cs.picture->m_bufs[PIC_RECON_WRAP]);
+  else
+    cs.picture->m_finalBuffer.createFromBuf(cs.picture->m_bufs[PIC_RECONSTRUCTION]);
+  if (m_threadPool) {
+    initBitmap(lines * 2);
+    m_rowComplete.set(0);
+  }
+  bool bwaitRererencePictureReady = true;
+  bool bLastSlice = false;
+  if (m_currDecompPic->slices.size() == 1) {
+    bwaitRererencePictureReady = false;
+    // single slice mode
+    auto& slice = m_currDecompPic->slices[0];
+    auto& bitstream = slice->parseTaskParams.bitstream;
+    slice->getPic()->startProcessingTimer();
+    // Decode a picture
+    ITT_TASKSTART(itt_domain_prs, itt_handle_parse);
+    // first slice or the previous slice not wrong
+    if (slice->getCtuAddrInSlice(0) == 0) {
+      m_cSliceDecoder.parseSlice(slice, &bitstream, 0, this);
+      const unsigned lastCtuInSlice = slice->getCtuAddrInSlice(slice->getNumCtuInSlice() - 1);
+      bLastSlice = lastCtuInSlice == slice->getPPS()->pcv->sizeInCtus - 1;
+    }
+    ITT_TASKEND(itt_domain_prs, itt_handle_parse);
+
+    slice->getPic()->stopProcessingTimer();
+
+    bitstream.clearFifo();
+    bitstream.clearEmulationPreventionByteLocation();
+  } else {
+    for (auto& slice : m_currDecompPic->slices) {
+      // parse slice task here
+      auto& bitstream = slice->parseTaskParams.bitstream;
+      slice->getPic()->startProcessingTimer();
+      // Decode a picture
+      ITT_TASKSTART(itt_domain_prs, itt_handle_parse);
+      // first slice or the previous slice not wrong
+      if (slice->getCtuAddrInSlice(0) == 0) {
+        m_cSliceDecoder.parseSlice(slice, &bitstream, 0, nullptr);
+        const unsigned lastCtuInSlice = slice->getCtuAddrInSlice(slice->getNumCtuInSlice() - 1);
+        bLastSlice = lastCtuInSlice == slice->getPPS()->pcv->sizeInCtus - 1;
+      }
+      ITT_TASKEND(itt_domain_prs, itt_handle_parse);
+
+      slice->getPic()->stopProcessingTimer();
+
+      bitstream.clearFifo();
+      bitstream.clearEmulationPreventionByteLocation();
+    }
+  }
+
+  if (bLastSlice) {
+    if (m_threadPool) {
+      decodeFrameWithThreadPool();
+    } else {
+      // decode on frame thread
+      for (int y = 0; y < lines; y++) {
+        if (bwaitRererencePictureReady) waitRererencePictureReady(y);  // wait for all reference picture ready
+        for (int x = 0; x < w; x++) decodeCTU(x, y, 0);
+      }
+    }
+
+    if (cs.sps->getUseALF()) {
+      cs.picture->m_bufs[PIC_RECONSTRUCTION].swap(m_tmpBuf);
+    }
+
+    m_currDecompPic->reconstructed = true;
+  } else {
+    m_currDecompPic->reconstructed = false;
+  }
+  m_currDecompPic->inProgress = false;
+  // m_currDecompPic->done.unlock();
+  m_currDecompPic->neededForOutput = m_currDecompPic->slices[0]->getPicHeader()->getPicOutputFlag();
+  // here we recycle frame level tmp buffer
+  Pel* residual = cs.getPictureResidualBuffer();
+  m_decLib->m_frameData.recycleResidual(residual, cs.getResidualPictureSize());
+  m_decLib->m_frameData.recycleCSMemory(cs.m_saoBlkParam, cs.m_ctuLoopFilterDataHorEdge, cs.m_ctuCuPtr,
+                                        cs.pcv->sizeInCtus);
+  cs.releaseCUTUCache();
+
+  m_sDoneBarrier.trigger();
+}
+
+void DecLibRecon::threadProc() {
+  // nothing here
+  // printf("hello world!\n");
+  while (m_bExitThread == false) {
+    m_sEnableBarrier.wait();
+    if (m_bExitThread) break;
+    if (m_currDecompPic == nullptr) break;
+    decodeFrame();
+  }
+}
+
+void DecLibRecon::create(unsigned instanceId, DecLib* decLib, vvdec::VVDecThreadPool* pool, bool createFrameThreads) {
   // run constructor again to ensure all variables, especially in DecLibParser have been reset
   this->~DecLibRecon();
   new (this) DecLibRecon;
@@ -140,20 +226,102 @@ void DecLibRecon::create(NoMallocThreadPool* threadPool, unsigned instanceId) {
   }
   m_itt_decInst = itt_domain_decInst[instanceId];
 #endif
+  m_decLib = decLib;
+  // m_decodeThreadPool = threadPool;
+  m_numDecThreads = std::max(1, pool ? pool->m_numWorkThreads : 1);
+  m_cIntraPred = new IntraPrediction[m_numDecThreads + 1];
+  m_cInterPred = new InterPrediction[m_numDecThreads + 1];
+  m_cTrQuant = new TrQuant[m_numDecThreads + 1];
+  m_cCuDecoder = new DecCu[m_numDecThreads + 1];
+  m_cReshaper = new Reshape[m_numDecThreads + 1];
+  if (createFrameThreads) m_cFrameThread = new std::thread(&DecLibRecon::threadProc, this);
+  m_threadPool = pool;
+  if (pool) {
+    pool->addWorkProducer(this);
+    m_pool = pool;
+  }
+  m_numRowCTUs = 0;
+}
 
-  m_decodeThreadPool = threadPool;
-  m_numDecThreads = std::max(1, threadPool ? threadPool->numThreads() : 1);
+bool DecLibRecon::initBitmap(int numRows) {
+    if (numRows != m_numRows) {
+        delete[]m_rowDependencyBitmap;
+        delete[]m_frameParseRowBitmap;
+    }
+    else {
+        if (m_rowDependencyBitmap && m_frameParseRowBitmap) {
+            for (int i = 0; i < m_numWords; i++) {
+                m_rowDependencyBitmap[i] = 0;
+                m_frameParseRowBitmap[i] = 0;
+            }
+        }
+        return m_rowDependencyBitmap && m_frameParseRowBitmap;
+    }
+    m_numRows = numRows;
 
-  m_cIntraPred = new IntraPrediction[m_numDecThreads];
-  m_cInterPred = new InterPrediction[m_numDecThreads];
-  m_cTrQuant = new TrQuant[m_numDecThreads];
-  m_cCuDecoder = new DecCu[m_numDecThreads];
-  m_cReshaper = new Reshape[m_numDecThreads];
+    m_numWords = (numRows + 31) >> 5;
+    m_rowDependencyBitmap = new std::atomic_uint32_t[m_numWords];
+    m_frameParseRowBitmap = new std::atomic_uint32_t[m_numWords];
+    
+    if (m_rowDependencyBitmap && m_frameParseRowBitmap) {
+        for (int i = 0; i < m_numWords; i++) {
+            m_rowDependencyBitmap[i] = 0;
+            m_frameParseRowBitmap[i] = 0;
+        }
+    }
+    return m_rowDependencyBitmap && m_frameParseRowBitmap;
+}
+
+void DecLibRecon::enableRow(int row) {
+    uint32_t bit = 1 << (row & 31);
+    std::atomic_fetch_or(&m_rowDependencyBitmap[row >> 5], bit);
+    if (m_pool) wakeUpFreeThread();
+}
+
+void DecLibRecon::markRowCanBeProcessed(int row) {
+    uint32_t bit = 1 << (row & 31);
+    std::atomic_fetch_or(&m_frameParseRowBitmap[row >> 5], bit);
+}
+
+void DecLibRecon::doWork(int threadId) {
+    unsigned long id;
+    for (int w = 0; w < m_numWords; w++) {
+        uint32_t oldval = m_rowDependencyBitmap[w] & m_frameParseRowBitmap[w];
+        while (oldval) {
+            find_first_set_bit(id, oldval);
+
+            uint32_t bit = 1 << id;
+            if (std::atomic_fetch_and(&m_rowDependencyBitmap[w], ~bit) & bit) {
+                int row = w * 32 + id;
+                if (row < m_numRowCTUs)
+                  processRowRecon(row, threadId);
+                else
+                  processRowFilter(row - m_numRowCTUs, threadId);
+                m_bNeedDoWork = true;
+                return;
+            }
+
+            oldval = m_rowDependencyBitmap[w] & m_frameParseRowBitmap[w];
+        }
+    }
+
+    m_bNeedDoWork = false;
 }
 
 void DecLibRecon::destroy() {
-  m_decodeThreadPool = nullptr;
-
+  if (m_cFrameThread != nullptr) {
+    m_bExitThread = true;
+    m_sEnableBarrier.trigger();
+    m_cFrameThread->join();
+    delete m_cFrameThread;
+    m_cFrameThread = nullptr;
+  }
+  if (m_rowSync != nullptr) delete[] m_rowSync;
+  m_rowSync = nullptr;
+  if (m_filterRowSync != nullptr) delete[] m_filterRowSync;
+  m_filterRowSync = nullptr;
+  // m_decodeThreadPool = nullptr;
+  m_tmpBuf.destroy();
   delete[] m_cIntraPred;
   m_cIntraPred = nullptr;
   delete[] m_cInterPred;
@@ -164,80 +332,80 @@ void DecLibRecon::destroy() {
   m_cCuDecoder = nullptr;
   delete[] m_cReshaper;
   m_cReshaper = nullptr;
+  free((void*)m_rowDependencyBitmap);
+  free((void*)m_frameParseRowBitmap);
 }
 
-void DecLibRecon::borderExtPic(Picture* pic) {
-  if (pic->cs->sps->getUseWrapAround()) {
-    // TODO: make task? (GH)
-    pic->done.wait();
-    pic->getRecoBuf(true).copyFrom(pic->getRecoBuf());
-  }
+void DecLibRecon::updateFuncPtr(Picture* pcPic) {
+  int bitDepth = pcPic->cs->sps->getBitDepth(CHANNEL_TYPE_LUMA);
 
-  {
-    static auto task = [](int, Picture* picture) {
-      ITT_TASKSTART(itt_domain_dec, itt_handle_ext);
-      picture->extendPicBorder(true, false, false, false);
-      ITT_TASKEND(itt_domain_dec, itt_handle_ext);
-      return true;
-    };
-    m_decodeThreadPool->addBarrierTask<Picture>(task, pic, &pic->m_borderExtTaskCounter, nullptr,
-                                                {&static_cast<const Barrier&>(pic->done)});
-  }
+  if (m_currFuncBitDepth == bitDepth) return;
 
-  {
-    static auto task = [](int, Picture* picture) {
-      ITT_TASKSTART(itt_domain_dec, itt_handle_ext);
-      picture->extendPicBorder(false, true, false, false);
-      ITT_TASKEND(itt_domain_dec, itt_handle_ext);
-      return true;
-    };
-    m_decodeThreadPool->addBarrierTask<Picture>(task, pic, &pic->m_borderExtTaskCounter, nullptr,
-                                                {&static_cast<const Barrier&>(pic->done)});
-  }
+  m_currFuncBitDepth = bitDepth;
 
-  {
-    static auto task = [](int, Picture* picture) {
-      ITT_TASKSTART(itt_domain_dec, itt_handle_ext);
-      picture->extendPicBorder(false, false, true, false, CH_L);
-      ITT_TASKEND(itt_domain_dec, itt_handle_ext);
-      return true;
-    };
-    m_decodeThreadPool->addBarrierTask<Picture>(task, pic, &pic->m_borderExtTaskCounter, nullptr,
-                                                {&static_cast<const Barrier&>(pic->done)});
-  }
-  {
-    static auto task = [](int, Picture* picture) {
-      ITT_TASKSTART(itt_domain_dec, itt_handle_ext);
-      picture->extendPicBorder(false, false, false, true, CH_L);
-      ITT_TASKEND(itt_domain_dec, itt_handle_ext);
-      return true;
-    };
-    m_decodeThreadPool->addBarrierTask<Picture>(task, pic, &pic->m_borderExtTaskCounter, nullptr,
-                                                {&static_cast<const Barrier&>(pic->done)});
-  }
+  // init Pel Buf Ptr
+  g_pelBufOP.initPelBufOps(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_BUFFER
+  g_pelBufOP.initPelBufOpsX86(m_currFuncBitDepth);
+#endif
 
-  {
-    static auto task = [](int, Picture* picture) {
-      ITT_TASKSTART(itt_domain_dec, itt_handle_ext);
-      picture->extendPicBorder(false, false, true, false, CH_C);
-      ITT_TASKEND(itt_domain_dec, itt_handle_ext);
-      return true;
-    };
-    m_decodeThreadPool->addBarrierTask<Picture>(task, pic, &pic->m_borderExtTaskCounter, nullptr,
-                                                {&static_cast<const Barrier&>(pic->done)});
-  }
-  {
-    static auto task = [](int, Picture* picture) {
-      ITT_TASKSTART(itt_domain_dec, itt_handle_ext);
-      picture->extendPicBorder(false, false, false, true, CH_C);
-      ITT_TASKEND(itt_domain_dec, itt_handle_ext);
-      return true;
-    };
-    m_decodeThreadPool->addBarrierTask<Picture>(task, pic, &pic->m_borderExtTaskCounter, nullptr,
-                                                {&static_cast<const Barrier&>(pic->done)});
-  }
+  // init TransForm Ptr
+  g_tCoeffOps.initTCoeffOps(m_currFuncBitDepth);
+#if ENABLE_SIMD_TCOEFF_OPS
+  g_tCoeffOps.initTCoeffOpsX86(m_currFuncBitDepth);
+#endif
 
-  pic->isBorderExtended = true;
+  // init SAO Ptr
+  m_cSAO.initSampleAdaptiveOffset(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_SAO
+  m_cSAO.initSampleAdaptiveOffsetX86(m_currFuncBitDepth);
+#endif
+
+  // init RdCost Ptr
+  m_cRdCost.initRdCost(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_DIST
+  m_cRdCost.initRdCostX86(m_currFuncBitDepth);
+#endif
+
+  // init LoopFilter Ptr
+  m_cLoopFilter.initLoopFilter(m_currFuncBitDepth);
+#if defined(TARGET_SIMD_X86) && ENABLE_SIMD_DBLF
+  m_cLoopFilter.initLoopFilterX86(m_currFuncBitDepth);
+#endif
+
+  // init ALF Ptr
+  m_cALF.initAdaptiveLoopFilter(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_ALF
+  m_cALF.initAdaptiveLoopFilterX86(m_currFuncBitDepth);
+#endif
+
+  for (int i = 0; i < m_numDecThreads; i++) {
+    // init Intra Ptr
+    m_cIntraPred[i].initIntraPrediction(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_INTRAPRED
+    m_cIntraPred[i].initIntraPredictionX86(m_currFuncBitDepth);
+#endif
+
+    m_cIntraPred[i].m_matrixIntraPred.initMatrixIntraPrediction(m_currFuncBitDepth);
+
+    // init Inter Ptr
+    m_cInterPred[i].initInterPrediction(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_BIO
+    m_cInterPred[i].initInterPredictionX86(m_currFuncBitDepth);
+#endif
+
+    // init Quant Ptr
+    m_cTrQuant[i].initQuant(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_QUANT
+    m_cTrQuant[i].initQuantX86(m_currFuncBitDepth);
+#endif
+
+    // init Interpolation Ptr
+    m_cInterPred[i].m_if.initInterpolationFilter(m_currFuncBitDepth);
+#if ENABLE_SIMD_OPT_MCIF
+    m_cInterPred[i].m_if.initInterpolationFilterX86(m_currFuncBitDepth);
+#endif
+  }
 }
 
 void DecLibRecon::decompressPicture(Picture* pcPic) {
@@ -255,463 +423,335 @@ void DecLibRecon::decompressPicture(Picture* pcPic) {
   const SPS* sps = cs.sps.get();
   const PPS* pps = cs.pps.get();
 
-  for (int i = 0; i < m_numDecThreads; i++) {
+  if (m_threadPool != nullptr) {
+    if (m_numRowCTUs != cs.pcv->heightInCtus) {
+      if (m_rowSync != nullptr) delete[] m_rowSync;
+      m_rowSync = new CTURowSync[cs.pcv->heightInCtus];
+      if (m_filterRowSync != nullptr) delete[] m_filterRowSync;
+      m_filterRowSync = new CTURowSync[cs.pcv->heightInCtus];
+    }
+    m_numRowCTUs = cs.pcv->heightInCtus;
+    for (int i = 0; i < m_numRowCTUs; i++) m_rowSync[i].init();
+    for (int i = 0; i < m_numRowCTUs; i++) m_filterRowSync[i].init();
+  }
+
+  for (int i = 0; i < m_numDecThreads + 1; i++) {
     if (sps->getUseReshaper()) {
       m_cReshaper[i].createDec(sps->getBitDepth(CHANNEL_TYPE_LUMA));
       m_cReshaper[i].initSlice(pcPic->slices[0]);
     }
 
     m_cIntraPred[i].init(sps->getChromaFormatIdc(), sps->getBitDepth(CHANNEL_TYPE_LUMA));
-    m_cInterPred[i].init(&m_cRdCost, sps->getChromaFormatIdc(), sps->getMaxCUHeight());
+    m_cInterPred[i].init(&m_cRdCost, sps->getChromaFormatIdc(), sps->getMaxCUHeight(),
+                         sps->getIBCFlag() ? true : false);
 
     // Recursive structure
     m_cTrQuant[i].init(pcPic->slices[0]);
-    m_cCuDecoder[i].init(&m_cIntraPred[i], &m_cInterPred[i], &m_cReshaper[i], &m_cTrQuant[i]);
+    m_cCuDecoder[i].init(&m_cIntraPred[i], &m_cInterPred[i], &m_cReshaper[i], &m_cTrQuant[i], &m_cLoopFilter);
   }
 
-  const uint32_t log2SaoOffsetScaleLuma =
-      (uint32_t)std::max(0, sps->getBitDepth(CHANNEL_TYPE_LUMA) - MAX_SAO_TRUNCATED_BITDEPTH);
-  const uint32_t log2SaoOffsetScaleChroma =
-      (uint32_t)std::max(0, sps->getBitDepth(CHANNEL_TYPE_CHROMA) - MAX_SAO_TRUNCATED_BITDEPTH);
   const int maxDepth = getLog2(sps->getMaxCUWidth()) - pps->pcv->minCUWidthLog2;
   m_cSAO.create(pps->getPicWidthInLumaSamples(), pps->getPicHeightInLumaSamples(), sps->getChromaFormatIdc(),
-                sps->getMaxCUWidth(), sps->getMaxCUHeight(), maxDepth, log2SaoOffsetScaleLuma,
-                log2SaoOffsetScaleChroma);
+                sps->getMaxCUWidth(), sps->getMaxCUHeight(), maxDepth);
 
   if (sps->getUseALF()) {
     m_cALF.create(cs.picHeader, sps, pps, m_numDecThreads);
   }
 
-  const int widthInCtus = cs.pcv->widthInCtus;
-  const int heightInCtus = cs.pcv->heightInCtus;
-
   if (sps->getIBCFlag()) {
+    const int heightInCtus = cs.pcv->heightInCtus;
     cs.initVIbcBuf(heightInCtus, sps->getChromaFormatIdc(), sps->getMaxCUHeight());
   }
-  pcPic->startProcessingTimer();
-
-  if (m_decodeThreadPool->numThreads() > 0) {
-    ITT_TASKSTART(itt_domain_dec, itt_handle_schedTasks);
+  const bool doALF = cs.sps->getUseALF();
+  if (doALF) {
+    AdaptiveLoopFilter::preparePic(cs, &m_tmpBuf);
   }
-
-  picBarriers.clear();
-#if ALLOW_MIDER_LF_DURING_PICEXT
-  CBarrierVec picExtBarriers;
-#else
-  CBarrierVec& picExtBarriers = picBarriers;
-#endif
-
-  for (int iDir = REF_PIC_LIST_0; iDir < NUM_REF_PIC_LIST_01; ++iDir) {
-    for (int iRefIdx = 0; iRefIdx < pcPic->slices[0]->getNumRefIdx((RefPicList)iDir); iRefIdx++) {
-      Picture* pic = const_cast<Picture*>(pcPic->slices[0]->getRefPic((RefPicList)iDir, iRefIdx));
-
-      if (!pic->isBorderExtended) {
-        borderExtPic(pic);
-      }
-
-      if (pic->m_borderExtTaskCounter.isBlocked() &&
-          std::find(picExtBarriers.cbegin(), picExtBarriers.cend(), &pic->m_borderExtTaskCounter.done) ==
-              picExtBarriers.cend()) {
-        picExtBarriers.push_back(&pic->m_borderExtTaskCounter.done);
-      }
-
-      if (pic->m_dmvrTaskCounter.isBlocked() &&
-          std::find(picBarriers.cbegin(), picBarriers.cend(), &pic->m_dmvrTaskCounter.done) == picBarriers.cend()) {
-        picBarriers.push_back(&pic->m_dmvrTaskCounter.done);
-      }
-    }
-  }
-
-  if (m_decodeThreadPool->numThreads() == 0 &&
-      (std::any_of(picExtBarriers.cbegin(), picExtBarriers.cend(), [](const Barrier* b) { return b->isBlocked(); }) ||
-       std::any_of(picBarriers.cbegin(), picBarriers.cend(), [](const Barrier* b) { return b->isBlocked(); }))) {
-    m_decodeThreadPool->processTasksOnMainThread();
-  }
-
-  const bool isIntra = pcPic->slices[0]->isIntra();
-
-  const int numColPerTask = std::max(
-      std::min(widthInCtus, (widthInCtus / std::max(m_numDecThreads * (isIntra ? 2 : 1), 1)) + (isIntra ? 0 : 1)), 1);
-  const int numTasksPerLine = widthInCtus / numColPerTask + !!(widthInCtus % numColPerTask);
-
-#if ALLOW_MIDER_LF_DURING_PICEXT
-  pcPic->refPicExtDepBarriers = std::move(picExtBarriers);
-#endif
-#if !RECO_WHILE_PARSE
-  picBarriers.push_back(&cs.slice->parseDone);
-
-#endif
-  const TaskType ctuStartState = MIDER;
-  const bool doALF = cs.sps->getUseALF() && !AdaptiveLoopFilter::getAlfSkipPic(cs);
-  commonTaskParam.reset(cs, ctuStartState, numTasksPerLine, doALF);
-
-  tasksDMVR = std::vector<LineTaskParam>(heightInCtus, LineTaskParam{commonTaskParam, -1});
-  tasksCtu = std::vector<CtuTaskParam>(heightInCtus * numTasksPerLine, CtuTaskParam{commonTaskParam, -1, -1, {}});
-
-  pcPic->done.lock();
-
-  for (int i = 0; i < numTasksPerLine + heightInCtus; ++i) {
-    int line = 0;
-    for (int col = i; col >= 0; --col, ++line) {
-      if (line < heightInCtus && col < numTasksPerLine) {
-        CBarrierVec ctuBarriesrs = picBarriers;
-
-#if RECO_WHILE_PARSE
-        const int ctuStart = col * numColPerTask;
-        const int ctuEnd = std::min(ctuStart + numColPerTask, widthInCtus);
-        for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-          ctuBarriesrs.push_back(&pcPic->ctuParsedBarrier[line * widthInCtus + ctu]);
-        }
-#endif
-        CtuTaskParam* param = &tasksCtu[line * numTasksPerLine + col];
-        param->line = line;
-        param->col = col;
-        param->numColPerTask = numColPerTask;
-        param->numTasksPerLine = numTasksPerLine;
-
-        m_decodeThreadPool->addBarrierTask<CtuTaskParam>(ctuTask<false>, param, &pcPic->m_ctuTaskCounter, nullptr,
-                                                         std::move(ctuBarriesrs), ctuTask<true>);
-      }
-    }
-  }
-
-  if (commonTaskParam.doALF) {
-    AdaptiveLoopFilter::preparePic(cs);
-    commonTaskParam.alfPrepared.unlock();
-  }
-
-  {
-    static auto doneTask = [](int, Picture* picture) {
-      CodingStructure& cs = *picture->cs;
-      if (cs.sps->getUseALF() && !AdaptiveLoopFilter::getAlfSkipPic(cs)) {
-        AdaptiveLoopFilter::swapBufs(cs);
-      }
-
-      picture->reconstructed = true;
-      picture->inProgress = false;
-      picture->neededForOutput = picture->slices[0]->getPicHeader()->getPicOutputFlag();
-#ifdef TRACE_ENABLE_ITT
-      // mark end of frame
-      __itt_frame_end_v3(picture->m_itt_decLibInst, nullptr);
-#endif
-      picture->done.unlock();
-
-      picture->stopProcessingTimer();
-
-      return true;
-    };
-    m_decodeThreadPool->addBarrierTask<Picture>(doneTask, pcPic, nullptr, nullptr, {&pcPic->m_ctuTaskCounter.done});
-  }
-
-  if (pcPic->referenced) {
-    static auto task = [](int tid, LineTaskParam* param) {
-      ITT_TASKSTART(itt_domain_dec, itt_handle_dmvr);
-      auto& cs = *param->common.cs;
-      for (int col = 0; col < cs.pcv->widthInCtus; col++) {
-        param->common.decLib.m_cCuDecoder[tid].TaskDeriveDMVRMotionInfo(cs, getCtuArea(cs, col, param->line, true));
-      }
-      ITT_TASKEND(itt_domain_dec, itt_handle_dmvr);
-      return true;
-    };
-
-    for (int taskLineDMVR = 0; taskLineDMVR < heightInCtus; taskLineDMVR++) {
-      auto param = &tasksDMVR[taskLineDMVR];
-      param->line = taskLineDMVR;
-      m_decodeThreadPool->addBarrierTask<LineTaskParam>(task, param, &pcPic->m_dmvrTaskCounter, nullptr,
-                                                        {&commonTaskParam.dmvrTriggers[taskLineDMVR]});
-    }
-  }
-
-  if (m_decodeThreadPool->numThreads() == 0) {
-  } else {
-    ITT_TASKEND(itt_domain_dec, itt_handle_schedTasks);
-  }
-
   m_currDecompPic = pcPic;
+  m_sEnableBarrier.trigger();
+  if (m_cFrameThread == nullptr) {
+    decodeFrame();
+  }
 }
 
 Picture* DecLibRecon::waitForPrevDecompressedPic() {
   if (!m_currDecompPic) return nullptr;
-
-  ITT_TASKSTART(itt_domain_dec, itt_handle_waitTasks);
-  m_currDecompPic->m_dmvrTaskCounter.wait();
-  m_currDecompPic->done.wait();
-  ITT_TASKEND(itt_domain_dec, itt_handle_waitTasks);
-
+  m_sDoneBarrier.wait();
   Picture* pic = m_currDecompPic;
   m_currDecompPic = nullptr;
   return pic;
 }
 
-template <bool onlyCheckReadyState>
-bool DecLibRecon::ctuTask(int tid, CtuTaskParam* param) {
-  const int col = param->col;
-  const int line = param->line;
-
-  auto& cs = *param->common.cs;
-  auto& decLib = param->common.decLib;
-  const int widthInCtus = param->numTasksPerLine;
-  const int heightInCtus = cs.pcv->heightInCtus;
-
-  CtuState& thisCtuState = param->common.ctuStates[line * widthInCtus + col];
-  const CtuState* thisLine = &param->common.ctuStates[line * widthInCtus];
-  const CtuState* lineAbove = thisLine - widthInCtus;
-  const CtuState* lineBelow = thisLine + widthInCtus;
-
-  const int ctuStart = col * param->numColPerTask;
-  const int ctuEnd = std::min<int>(ctuStart + param->numColPerTask, cs.pcv->widthInCtus);
-
-  switch (thisCtuState.load()) {
-      // all case statements fall through to continue with next task, unless they return false due to unsatisfied
-      // preconditions
-
-    case MIDER: {
-      if (col > 0 && thisLine[col - 1] <= MIDER) return false;
-      if (line > 0 && lineAbove[std::min(col + 1, widthInCtus - 1)] <= MIDER) return false;
-      if (onlyCheckReadyState) return true;
-
-      ITT_TASKSTART(itt_domain_dec, itt_handle_mider);
-
-      for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-        CtuData& ctuData = cs.getCtuData(ctu, line);
-        GCC_WARNING_DISABLE_class_memaccess memset(ctuData.motion, 0, sizeof(CtuData::motion));
-        GCC_WARNING_RESET
-
-        if (!ctuData.cuPtr[0][0]->slice->isIntra() || cs.sps->getIBCFlag()) {
-          const UnitArea ctuArea = getCtuArea(cs, ctu, line, true);
-          decLib.m_cCuDecoder[tid].TaskDeriveCtuMotionInfo(cs, ctuArea, param->common.perLineMiHist[line]);
-        }
+void DecLibRecon::saoCTU(CodingStructure& cs, int x, int y, int tid) {
+  const UnitArea ctuArea = getCtuArea(cs, x, y, true);
+  if (cs.sps->getUseSAO()) {
+    m_cSAO.SAOProcessCTU(cs, ctuArea);
+  }
+  if (cs.sps->getUseALF()) {
+    AdaptiveLoopFilter::prepareCTU(cs, x, y);
+    // apply alf here
+    if (y > 0) {
+      if (x > 0) {
+        m_cALF.processCTU(cs, x - 1, y - 1, tid);
+        cs.picture->m_rowReconCounter[y - 1].incr();
       }
-      thisCtuState = (TaskType)(MIDER + 1);
-
-      ITT_TASKEND(itt_domain_dec, itt_handle_mider);
+      if (x == cs.pcv->widthInCtus - 1) {
+        m_cALF.processCTU(cs, x, y - 1, tid);
+        cs.picture->extendRowBorder(y - 1);
+        cs.picture->m_rowReconCounter[y - 1].incr();
+        cs.picture->m_rowCompleteCount.incr();
+      }
     }
-
-    case LF_INIT: {
-      if (onlyCheckReadyState) return true;
-
-      ITT_TASKSTART(itt_domain_dec, itt_handle_lfcl);
-
-      for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-        CtuData& ctuData = cs.getCtuData(ctu, line);
-        memset(ctuData.lfParam, 0, sizeof(CtuData::lfParam));
-
-        const UnitArea ctuArea = getCtuArea(cs, ctu, line, true);
-        decLib.m_cLoopFilter.calcFilterStrengthsCTU(cs, ctuArea);
+    if (y == cs.pcv->heightInCtus - 1) {
+      if (x > 1) {
+        m_cALF.processCTU(cs, x - 2, y, tid);
+        cs.picture->m_rowReconCounter[y].incr();
       }
-
-      thisCtuState = (TaskType)(LF_INIT + 1);
-
-      ITT_TASKEND(itt_domain_dec, itt_handle_lfcl);
-    }
-
-    case INTER: {
-      if (cs.picture->slices[0]->isIntra()) {
-        // not really necessary, but only for optimizing the wave-fronts
-        if (col > 1 && thisLine[col - 2] <= INTER) return false;
-        if (line > 0 && lineAbove[col] <= INTER) return false;
-      } else {
-        if (std::any_of(cs.picture->refPicExtDepBarriers.cbegin(), cs.picture->refPicExtDepBarriers.cend(),
-                        [](const Barrier* b) { return b->isBlocked(); })) {
-          return false;
+      if (x == cs.pcv->widthInCtus - 1) {
+        if (x > 0) {
+          m_cALF.processCTU(cs, x - 1, y, tid);
+          cs.picture->m_rowReconCounter[y].incr();
         }
+        m_cALF.processCTU(cs, x, y, tid);
+        cs.picture->extendRowBorder(y);
+        cs.picture->m_rowReconCounter[y].incr();
+        cs.picture->m_rowCompleteCount.incr();
       }
-
-      if (onlyCheckReadyState) return true;
-
-      ITT_TASKSTART(itt_domain_dec, itt_handle_inter);
-
-      for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-        const CtuData& ctuData = cs.getCtuData(ctu, line);
-        const UnitArea ctuArea = getCtuArea(cs, ctu, line, true);
-        decLib.m_cCuDecoder[tid].TaskTrafoCtu(cs, ctuArea);
-
-        if (!ctuData.cuPtr[0][0]->slice->isIntra()) {
-          decLib.m_cCuDecoder[tid].TaskInterCtu(cs, ctuArea);
-        }
-      }
-
-      thisCtuState = (TaskType)(INTER + 1);
-
-      ITT_TASKEND(itt_domain_dec, itt_handle_inter);
     }
-
-    case INTRA: {
-      if (col > 0 && thisLine[col - 1] <= INTRA) return false;
-      if (line > 0 && lineAbove[std::min(col + 1, widthInCtus - 1)] <= INTRA) return false;
-      if (onlyCheckReadyState) return true;
-
-      ITT_TASKSTART(itt_domain_dec, itt_handle_intra);
-
-      for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-        const UnitArea ctuArea = getCtuArea(cs, ctu, line, true);
-        decLib.m_cCuDecoder[tid].TaskCriticalIntraKernel(cs, ctuArea);
-      }
-
-      thisCtuState = (TaskType)(INTRA + 1);
-
-      ITT_TASKEND(itt_domain_dec, itt_handle_intra);
+  } else {
+    if (x == cs.pcv->widthInCtus - 1) {
+      cs.picture->extendRowBorder(y);
+      cs.picture->m_rowCompleteCount.incr();
     }
+    cs.picture->m_rowReconCounter[y].incr();
+  }
+}
 
-    case RSP: {
-      // RIRZIIIII
-      // IIIIIXXXX
-      //
-      // - Z can be reshaped when it is no more an intra prediction source for X in the next line
-
-      if (line + 1 < heightInCtus && col + 1 < widthInCtus && lineBelow[col + 1] < RSP)
-        return false;
-      else if (line + 1 < heightInCtus && lineBelow[col] < RSP)
-        return false;
-      else if (col + 1 < widthInCtus && thisLine[col + 1] < RSP)  // need this for the last line
-        return false;
-
-      if (onlyCheckReadyState) return true;
-
-      ITT_TASKSTART(itt_domain_dec, itt_handle_rsp);
-
-      for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-        decLib.m_cReshaper[tid].rspCtu(cs, ctu, line, 0);
-      }
-
-      ITT_TASKEND(itt_domain_dec, itt_handle_rsp);
-
-      thisCtuState = (TaskType)(RSP + 1);
+void DecLibRecon::dbfHCTU(CodingStructure& cs, int x, int y, int tid) {
+  // fall back to sao
+  if (y > 0) {
+    if (x > 0) saoCTU(cs, x - 1, y - 1, tid);
+    if (x == cs.pcv->widthInCtus - 1) saoCTU(cs, x, y - 1, tid);
+  }
+  if (y == cs.pcv->heightInCtus - 1) {
+    if (x > 1) saoCTU(cs, x - 2, y, tid);
+    if (x == cs.pcv->widthInCtus - 1) {
+      if (x > 0) saoCTU(cs, x - 1, y, tid);
+      saoCTU(cs, x, y, tid);
     }
+  }
+}
 
-    case LF_V: {
-      if (col > 0 && thisLine[col - 1] < LF_V) return false;
-      if (onlyCheckReadyState) return true;
+void DecLibRecon::reshapeCTU(CodingStructure& cs, int x, int y, int tid) {
+  const UnitArea ctuArea = getCtuArea(cs, x, y, true);
 
-      ITT_TASKSTART(itt_domain_dec, itt_handle_lfl);
+  CtuLoopFilterData ctuLoopFilterDataVerEdge;
+  memset(ctuLoopFilterDataVerEdge.lfParam, 0, sizeof(ctuLoopFilterDataVerEdge.lfParam));
+  m_cLoopFilter.calcFilterStrengthsVerEdgeCTU(cs, ctuArea, ctuLoopFilterDataVerEdge.lfParam);
 
-      for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-        decLib.m_cLoopFilter.loopFilterCTU(cs, MAX_NUM_CHANNEL_TYPE, ctu, line, 0, EDGE_VER);
-      }
+  if (cs.sps->getSPSTemporalMVPEnabledFlag() &&
+      (cs.sps->getMaxTLayers() == 1 || cs.picture->getTLayer() < cs.sps->getMaxTLayers() - 1) &&
+      !(cs.getCU(ctuArea.lumaPos(), CH_L)->slice->isIntra())) {
+    m_cCuDecoder[tid].TaskDeriveDMVRMotionInfo(cs, ctuArea);
+  }
+  cs.picture->m_rowMotionInfoCounter[y].incr();
+  m_cReshaper[tid].rspCtu(cs, x, y, 0);
+  // fall back to next step
+  m_cLoopFilter.loopFilterCTU(cs, MAX_NUM_CHANNEL_TYPE, x, y, EDGE_VER, ctuLoopFilterDataVerEdge.lfParam);
+  if (x > 0) {
+    m_cLoopFilter.loopFilterCTU(cs, MAX_NUM_CHANNEL_TYPE, x - 1, y, EDGE_HOR, nullptr);
+    dbfHCTU(cs, x - 1, y, tid);
+  }
+  if (x == cs.pcv->widthInCtus - 1) {
+    m_cLoopFilter.loopFilterCTU(cs, MAX_NUM_CHANNEL_TYPE, x, y, EDGE_HOR, nullptr);
+    dbfHCTU(cs, x, y, tid);
+  }
+}
 
-      thisCtuState = (TaskType)(LF_V + 1);
+void DecLibRecon::waitRererencePictureReady(int row) {
+  auto& cs = *m_currDecompPic->cs;
+  int w = cs.pcv->widthInCtus;
+  for (int x = 0; x < w; x++) {
+    const UnitArea ctuArea = getCtuArea(cs, (unsigned)x, (unsigned)row, true);
+    m_cCuDecoder[0].TaskWaitReferenceReady(cs, ctuArea, m_sPerLineMiHist[row],
+                                           m_decLib->getNumFrameDecoder() > 1 ? true : false);
+  }
+}
 
-      ITT_TASKEND(itt_domain_dec, itt_handle_lfl);
+void DecLibRecon::deriveMV(int x, int y, int tid) {
+  auto& cs = *m_currDecompPic->cs;
+  int w = cs.pcv->widthInCtus;
+  const UnitArea ctuArea = getCtuArea(cs, (unsigned)x, (unsigned)y, true);
+  m_cCuDecoder[tid].TaskWaitReferenceReady(cs, ctuArea, m_sPerLineMiHist[y],
+                                           m_decLib->getNumFrameDecoder() > 1 ? true : false);
+  if (x == w - 1 && m_threadPool) {
+    markRowCanBeProcessed(y);
+    markRowCanBeProcessed(y + m_numRowCTUs);
+    if (!y) {
+      m_rowSync[0].active = true;
+      enableRow(y);
     }
+    wakeUpFreeThread();
+  }
+}
 
-    case LF_H: {
-      if (line > 0 && lineAbove[col] < LF_H) return false;
-
-      if (line > 0 && col + 1 < widthInCtus && lineAbove[col + 1] < LF_H) return false;
-
-      if (col + 1 < widthInCtus && thisLine[col + 1] < LF_H) return false;
-
-      if (onlyCheckReadyState) return true;
-
-      ITT_TASKSTART(itt_domain_dec, itt_handle_lfl);
-
-      for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-        decLib.m_cLoopFilter.loopFilterCTU(cs, MAX_NUM_CHANNEL_TYPE, ctu, line, 0, EDGE_HOR);
-      }
-
-      thisCtuState = (TaskType)(LF_H + 1);
-
-      ITT_TASKEND(itt_domain_dec, itt_handle_lfl);
+void DecLibRecon::decodeCTU(int x, int y, int tid) {
+  // assume all reference is available
+  auto& cs = *m_currDecompPic->cs;
+  const UnitArea ctuArea = getCtuArea(cs, (unsigned)x, (unsigned)y, true);
+  CtuLoopFilterData& ctuLoopFilterDataHorEdge = cs.getCtuLoopFilterDataHorEdge(x, y);
+  memset(ctuLoopFilterDataHorEdge.lfParam, 0, sizeof(ctuLoopFilterDataHorEdge.lfParam));
+  m_cCuDecoder[tid].TaskReconAll2(cs, ctuArea);
+  if (y > 0) {
+    if (x > 0) reshapeCTU(cs, x - 1, y - 1, tid);
+    if (x == cs.pcv->widthInCtus - 1) reshapeCTU(cs, x, y - 1, tid);
+  }
+  if (y == cs.pcv->heightInCtus - 1) {
+    if (x > 1) reshapeCTU(cs, x - 2, y, tid);
+    if (x == cs.pcv->widthInCtus - 1) {
+      if (x > 0) reshapeCTU(cs, x - 1, y, tid);
+      reshapeCTU(cs, x, y, tid);
     }
+  }
+}
 
-    case PRESAO: {
-      // only last CTU processes full line
-      if (col == widthInCtus - 1) {
-        if (line > 0 && lineAbove[col] <= PRESAO) return false;
-
-        for (int c = 0; c < widthInCtus; ++c) {
-          if (thisLine[c] < PRESAO) return false;
-
-          if (line + 1 < heightInCtus && lineBelow[c] < PRESAO) return false;
-        }
-        if (onlyCheckReadyState) return true;
-
-        ITT_TASKSTART(itt_domain_dec, itt_handle_presao);
-
-        if (cs.sps->getUseSAO()) {
-          decLib.m_cSAO.SAOPrepareCTULine(cs, getLineArea(cs, line, true));
-        }
-        param->common.dmvrTriggers[line].unlock();
-
-        ITT_TASKEND(itt_domain_dec, itt_handle_presao);
-      } else if (thisLine[widthInCtus - 1] <= PRESAO)  // wait for last CTU to finish PRESAO
-      {
-        return false;
-      }
-      if (onlyCheckReadyState) return true;
-
-      thisCtuState = (TaskType)(PRESAO + 1);
-    }
-
-    case SAO: {
-      if (onlyCheckReadyState) return true;
-
-      // only last CTU processes full line
-      if (cs.sps->getUseSAO()) {
-        ITT_TASKSTART(itt_domain_dec, itt_handle_sao);
-
-        for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-          const UnitArea ctuArea = getCtuArea(cs, ctu, line, true);
-          decLib.m_cSAO.SAOProcessCTU(cs, ctuArea);
-        }
-
-        ITT_TASKEND(itt_domain_dec, itt_handle_sao);
-      }
-      if (param->common.doALF) {
-        ITT_TASKSTART(itt_domain_dec, itt_handle_alf);
-
-        for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-          AdaptiveLoopFilter::prepareCTU(cs, ctu, line);
-        }
-
-        ITT_TASKEND(itt_domain_dec, itt_handle_alf);
-      }
-
-      thisCtuState = (TaskType)(SAO + 1);
-    }
-
-    case ALF: {
-      if (param->common.doALF) {
-        const bool a = line > 0;
-        const bool b = line + 1 < heightInCtus;
-        const bool c = col > 0;
-        const bool d = col + 1 < widthInCtus;
-
-        if (param->common.alfPrepared.isBlocked()) return false;
-
-        if (a) {
-          if (c && lineAbove[col - 1] < ALF) return false;
-          if (lineAbove[col] < ALF) return false;
-          if (d && lineAbove[col + 1] < ALF) return false;
-        }
-
-        if (b) {
-          if (c && lineBelow[col - 1] < ALF) return false;
-          if (lineBelow[col] < ALF) return false;
-          if (d && lineBelow[col + 1] < ALF) return false;
-        }
-
-        if (c && thisLine[col - 1] < ALF) return false;
-        if (d && thisLine[col + 1] < ALF) return false;
-
-        if (onlyCheckReadyState) return true;
-
-        ITT_TASKSTART(itt_domain_dec, itt_handle_alf);
-        for (int ctu = ctuStart; ctu < ctuEnd; ctu++) {
-          decLib.m_cALF.processCTU(cs, ctu, line, tid);
-        }
-        ITT_TASKEND(itt_domain_dec, itt_handle_alf);
-      } else if (onlyCheckReadyState)
-        return true;
-
-      thisCtuState = (TaskType)(ALF + 1);
-    }
-
-    default:
-      CHECKD(thisCtuState != DONE, "Wrong CTU state");
-  }  // end switch
-
+bool DecLibRecon::checkRowShouldContinue(int row) {
+  int numCol = m_currDecompPic->cs->pcv->widthInCtus;
+  const CTURowSync& currRow = m_rowSync[row];
+  int col = currRow.completed;
+  if (currRow.completed == numCol) return false;
+  if (row > 0 && m_rowSync[row - 1].completed != numCol && m_rowSync[row - 1].completed < col + 2) return false;
   return true;
 }
 
+void DecLibRecon::activeRow(int row) {
+  CTURowSync& currRow = m_rowSync[row];
+  std::lock_guard<std::mutex> guad(currRow.lock);
+  if (currRow.active) return;
+  if (checkRowShouldContinue(row)) {
+    currRow.active = true;
+    enableRow(row);
+  }
+}
+
+bool DecLibRecon::checkFilterRowShouldContinue(int row) {
+  int numCol = m_currDecompPic->cs->pcv->widthInCtus;
+  const CTURowSync& currRow = m_filterRowSync[row];
+  int col = currRow.completed;
+  if (currRow.completed == numCol) return false;
+  if (row > 0 && m_filterRowSync[row - 1].completed != numCol && m_filterRowSync[row - 1].completed < col + 2)
+    return false;
+  if (row < m_numRowCTUs - 1 && m_rowSync[row + 1].completed != numCol && m_rowSync[row + 1].completed < col + 2)
+    return false;
+  return true;
+}
+
+void DecLibRecon::activeFilterRow(int row) {
+  CTURowSync& currRow = m_filterRowSync[row];
+  std::lock_guard<std::mutex> guad(currRow.lock);
+  if (currRow.active) return;
+  if (checkFilterRowShouldContinue(row)) {
+    currRow.active = true;
+    enableRow(row + m_numRowCTUs);
+  }
+}
+
+void DecLibRecon::processRowFilter(int row, int threadId) {
+  CTURowSync& r = m_filterRowSync[row];
+  {
+    std::lock_guard<std::mutex> guad(r.lock);
+    if (!r.active) return;
+    if (r.busy) return;
+    r.busy = true;
+  }
+  auto& cs = *m_currDecompPic->cs;
+  int numCol = cs.pcv->widthInCtus;
+  int numRow = cs.pcv->heightInCtus;
+  while (r.completed < numCol) {
+    reshapeCTU(cs, r.completed, row, threadId);
+    r.completed++;
+    if (r.completed >= 2 && row + 1 < numRow) {
+      activeFilterRow(row + 1);
+    }
+    if (r.completed < numCol - 1) {
+      std::lock_guard<std::mutex> guad(r.lock);
+      if (checkFilterRowShouldContinue(row) == false) {
+        r.busy = false;
+        r.active = false;
+        return;
+      }
+    }
+  }
+  r.busy = false;
+  r.active = false;
+  m_rowComplete.incr();
+  if (row == numRow - 1) {
+    int v = m_rowComplete.get();
+    while (v != numRow) {
+      v = m_rowComplete.waitForChange(v);
+    }
+    m_allRowDone.trigger();
+  }
+}
+
+void DecLibRecon::processRowRecon(int row, int threadId) {
+  CTURowSync& r = m_rowSync[row];
+  {
+    std::lock_guard<std::mutex> guad(r.lock);
+    if (!r.active) return;
+    if (r.busy) return;
+    r.busy = true;
+  }
+  auto& cs = *m_currDecompPic->cs;
+  int numCol = cs.pcv->widthInCtus;
+  int numRow = cs.pcv->heightInCtus;
+  while (r.completed < numCol) {
+    // decodeCTU(r.completed, row, threadId);
+    {
+      const UnitArea ctuArea = getCtuArea(cs, (unsigned)r.completed, (unsigned)row, true);
+      CtuLoopFilterData& ctuLoopFilterDataHorEdge = cs.getCtuLoopFilterDataHorEdge(r.completed, row);
+      memset(ctuLoopFilterDataHorEdge.lfParam, 0, sizeof(ctuLoopFilterDataHorEdge.lfParam));
+      m_cCuDecoder[threadId].TaskReconAll2(cs, ctuArea);
+    }
+    // active next row
+    r.completed++;
+    if (r.completed >= 2 && row + 1 < numRow) {
+      activeRow(row + 1);
+    }
+    if (row > 0 && r.completed >= 2) {
+      activeFilterRow(row - 1);
+    }
+    // detect we should wait for last row here
+    if (r.completed < numCol - 1) {
+      std::lock_guard<std::mutex> guad(r.lock);
+      if (checkRowShouldContinue(row) == false) {
+        r.busy = false;
+        r.active = false;
+        return;
+      }
+    }
+  }
+  r.busy = false;
+  r.active = false;
+}
+
+void DecLibRecon::decodeFrameWithThreadPool() {
+  bool bEnableRowEarly = m_currDecompPic->slices.size() == 1;
+  if (bEnableRowEarly == false) {
+    int lines = m_currDecompPic->cs->pcv->heightInCtus;
+    for (int y = 0; y < lines; y++) {
+      waitRererencePictureReady(y);
+      markRowCanBeProcessed(y);
+      markRowCanBeProcessed(y + m_numRowCTUs);
+      if (!y) {
+        m_rowSync[0].active = true;
+        enableRow(y);
+      }
+      wakeUpFreeThread();
+    }
+  }
+  static const int block_ms = 250;
+  while (m_allRowDone.timedWait(block_ms)) {
+    wakeUpFreeThread();
+  }
+}
 //! \}

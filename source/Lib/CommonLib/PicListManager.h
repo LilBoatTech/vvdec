@@ -55,9 +55,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 struct Picture;
 class SPS;
 class PPS;
-#if JVET_Q0814_DPB
 class VPS;
-#endif
 class ReferencePictureList;
 
 typedef std::list<Picture*> PicList;
@@ -91,12 +89,8 @@ class PicListManager {
   PicListRange getPicListRange(const Picture* pic) const;
   const Picture* getFrontPic() const { return m_cPicList.empty() ? nullptr : m_cPicList.front(); }
   const Picture* getBackPic() const { return m_cPicList.empty() ? nullptr : m_cPicList.back(); }
-#if JVET_Q0814_DPB
   Picture* getNewPicBuffer(const SPS& sps, const PPS& pps, const uint32_t temporalLayer, const int layerId,
                            const VPS* vps);
-#else
-  Picture* getNewPicBuffer(const SPS& sps, const PPS& pps, const uint32_t temporalLayer, const int layerId);
-#endif
   void deleteBuffers();
   void applyReferencePictureListBasedMarking(const Picture* currPic, const ReferencePictureList* rpl0,
                                              const ReferencePictureList* rpl1);

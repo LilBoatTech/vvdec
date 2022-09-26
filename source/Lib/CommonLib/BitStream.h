@@ -178,13 +178,35 @@ class InputBitstream {
 
   void resetToStart();
 
+  void inputZeroByte() { m_fifo.push_back(0); };
+
   // interface for decoding
   void pseudoRead(uint32_t uiNumberOfBits, uint32_t& ruiBits);
   void read(uint32_t uiNumberOfBits, uint32_t& ruiBits);
   void readByte(uint32_t& ruiBits) {
+#if ENABLE_CHECK_CABAC_READ
+    if (m_fifo_idx >= m_fifo.size()) {
+      ruiBits = 0;
+      return;
+    }
+#endif
     ruiBits = m_fifo[m_fifo_idx++];
 #if ENABLE_TRACING
     m_numBitsRead += 8;
+#endif
+  }
+
+  void readByteFlag(uint32_t& ruiBits, int flag) {
+#if ENABLE_CHECK_CABAC_READ
+    if (m_fifo_idx >= m_fifo.size()) {
+      ruiBits = 0;
+      return;
+    }
+#endif
+    ruiBits = flag & m_fifo[m_fifo_idx];
+    m_fifo_idx += flag & 1;
+#if ENABLE_TRACING
+    m_numBitsRead += flag & 8;
 #endif
   }
 
@@ -214,6 +236,13 @@ class InputBitstream {
     readByte(tmp);
     return tmp;
   }
+
+  uint32_t readByteFlag(int flag) {
+    uint32_t tmp;
+    readByteFlag(tmp, flag);
+    return tmp;
+  }
+
   uint32_t getNumBitsUntilByteAligned() { return m_num_held_bits & (0x7); }
   uint32_t getNumBitsLeft() { return 8 * ((uint32_t)m_fifo.size() - m_fifo_idx) + m_num_held_bits; }
   uint32_t getNumBitsRead() { return m_numBitsRead; }

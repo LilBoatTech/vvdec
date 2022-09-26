@@ -57,7 +57,6 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <memory.h>
 
-#if ENABLE_SIMD_TCOEFF_OPS
 template <int uiTrSize>
 inline void _fastInverseMM(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2,
                            const TCoeff outputMinimum, const TCoeff outputMaximum, const TMatrixCoeff *iT);
@@ -105,32 +104,9 @@ inline void _fastInverseMM<4>(const TCoeff *src, TCoeff *dst, int shift, int lin
 
   memset(dst, 0, line * 4 * sizeof(TCoeff));
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.fastInvCore4(iT, src, dst, 4, line, reducedLine, cutoff);
   g_tCoeffOps.roundClip4(dst, 4, reducedLine, 4, outputMinimum, outputMaximum, rnd_factor, shift);
-#  else
-  for (int k = 0; k < cutoff; k++) {
-    const TCoeff *srcPtr = &src[k * line];
-    for (int i = 0; i < reducedLine; i++) {
-      TCoeff *dstPtr = &dst[i << 2];
-      const TMatrixCoeff *itPtr = &iT[k << 2];
-      for (int j = 0; j < 4; j++) {
-        *dstPtr++ += *srcPtr * *itPtr++;
-      }
-      srcPtr++;
-    }
-  }
-
-  for (int i = 0; i < reducedLine; i++) {
-    TCoeff *dstPtr = &dst[i << 2];
-    for (int j = 0; j < 4; j++, dstPtr++) {
-      *dstPtr = Clip3(outputMinimum, outputMaximum, (int)(*dstPtr + rnd_factor) >> shift);
-    }
-  }
-#  endif
 }
-
-#endif
 
 template <int uiTrSize>
 inline void _fastInverseMM(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2,
@@ -141,32 +117,8 @@ inline void _fastInverseMM(const TCoeff *src, TCoeff *dst, int shift, int line, 
 
   memset(dst, 0, line * uiTrSize * sizeof(TCoeff));
 
-#if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.fastInvCore8(iT, src, dst, uiTrSize, line, reducedLine, cutoff);
-#else
-  for (int k = 0; k < cutoff; k++) {
-    const TCoeff *srcPtr = &src[k * line];
-    for (int i = 0; i < reducedLine; i++) {
-      TCoeff *dstPtr = &dst[i * uiTrSize];
-      const TMatrixCoeff *itPtr = &iT[k * uiTrSize];
-      for (int j = 0; j < uiTrSize; j++) {
-        *dstPtr++ += *srcPtr * *itPtr++;
-      }
-      srcPtr++;
-    }
-  }
-#endif
-
-#if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip8(dst, uiTrSize, reducedLine, uiTrSize, outputMinimum, outputMaximum, rnd_factor, shift);
-#else
-  for (int i = 0; i < reducedLine; i++) {
-    TCoeff *dstPtr = &dst[i * uiTrSize];
-    for (int j = 0; j < uiTrSize; j++, dstPtr++) {
-      *dstPtr = Clip3(outputMinimum, outputMaximum, (int)(*dstPtr + rnd_factor) >> shift);
-    }
-  }
-#endif
 }
 
 // ********************************** DCT-II **********************************
@@ -219,9 +171,7 @@ void fastInverseDCT2_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
 
   const TMatrixCoeff *iT = g_trCoreDCT2P4[0];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   TCoeff *orgDst = dst;
-#  endif
 
   const int reducedLine = line - iSkipLine;
   for (j = 0; j < reducedLine; j++) {
@@ -232,25 +182,16 @@ void fastInverseDCT2_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
     E[1] = iT[0 * 4 + 1] * src[0] + iT[2 * 4 + 1] * src[2 * line];
 
     /* Combining even and odd terms at each hierarchy levels to calculate the final spatial domain vector */
-#  if ENABLE_SIMD_TCOEFF_OPS
     dst[0] = E[0] + O[0];
     dst[1] = E[1] + O[1];
     dst[2] = E[1] - O[1];
     dst[3] = E[0] - O[0];
-#  else
-    dst[0] = Clip3(outputMinimum, outputMaximum, (E[0] + O[0] + add) >> shift);
-    dst[1] = Clip3(outputMinimum, outputMaximum, (E[1] + O[1] + add) >> shift);
-    dst[2] = Clip3(outputMinimum, outputMaximum, (E[1] - O[1] + add) >> shift);
-    dst[3] = Clip3(outputMinimum, outputMaximum, (E[0] - O[0] + add) >> shift);
-#  endif
 
     src++;
     dst += 4;
   }
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip4(orgDst, 4, reducedLine, 4, outputMinimum, outputMaximum, add, shift);
-#  endif
 
   if (iSkipLine) {
     memset(dst, 0, (iSkipLine << 2) * sizeof(TCoeff));
@@ -268,10 +209,10 @@ void fastInverseDCT2_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
  */
 void fastInverseDCT2_B8(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2,
                         const TCoeff outputMinimum, const TCoeff outputMaximum) {
-#if 0
+#if 1
   const TMatrixCoeff *iT = g_trCoreDCT2P8[0];
 
-  _fastInverseMM<8>( src, dst, shift, line, iSkipLine, iSkipLine2, outputMinimum, outputMaximum, iT );
+  _fastInverseMM<8>(src, dst, shift, line, iSkipLine, iSkipLine2, outputMinimum, outputMaximum, iT);
 #else
   int j, k;
   int E[4], O[4];
@@ -280,9 +221,7 @@ void fastInverseDCT2_B8(const TCoeff *src, TCoeff *dst, int shift, int line, int
 
   const TMatrixCoeff *iT = g_trCoreDCT2P8[0];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   TCoeff *orgDst = dst;
-#  endif
 
   const int reducedLine = line - iSkipLine;
   for (j = 0; j < reducedLine; j++) {
@@ -304,21 +243,14 @@ void fastInverseDCT2_B8(const TCoeff *src, TCoeff *dst, int shift, int line, int
     E[2] = EE[1] - EO[1];
 
     for (k = 0; k < 4; k++) {
-#  if ENABLE_SIMD_TCOEFF_OPS
       dst[k] = E[k] + O[k];
       dst[k + 4] = E[3 - k] - O[3 - k];
-#  else
-      dst[k] = Clip3(outputMinimum, outputMaximum, (E[k] + O[k] + add) >> shift);
-      dst[k + 4] = Clip3(outputMinimum, outputMaximum, (E[3 - k] - O[3 - k] + add) >> shift);
-#  endif
     }
     src++;
     dst += 8;
   }
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip8(orgDst, 8, reducedLine, 8, outputMinimum, outputMaximum, add, shift);
-#  endif
 
   if (iSkipLine) {
     memset(dst, 0, (iSkipLine << 3) * sizeof(TCoeff));
@@ -349,9 +281,7 @@ void fastInverseDCT2_B16(const TCoeff *src, TCoeff *dst, int shift, int line, in
 
   const TMatrixCoeff *iT = g_trCoreDCT2P16[0];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   TCoeff *orgDst = dst;
-#  endif
 
   const int reducedLine = line - iSkipLine;
 
@@ -381,21 +311,14 @@ void fastInverseDCT2_B16(const TCoeff *src, TCoeff *dst, int shift, int line, in
       E[k + 4] = EE[3 - k] - EO[3 - k];
     }
     for (k = 0; k < 8; k++) {
-#  if ENABLE_SIMD_TCOEFF_OPS
       dst[k] = E[k] + O[k];
       dst[k + 8] = E[7 - k] - O[7 - k];
-#  else
-      dst[k] = Clip3(outputMinimum, outputMaximum, (E[k] + O[k] + add) >> shift);
-      dst[k + 8] = Clip3(outputMinimum, outputMaximum, (E[7 - k] - O[7 - k] + add) >> shift);
-#  endif
     }
     src++;
     dst += 16;
   }
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip8(orgDst, 16, reducedLine, 16, outputMinimum, outputMaximum, add, shift);
-#  endif
 
   if (iSkipLine) {
     memset(dst, 0, (iSkipLine << 4) * sizeof(TCoeff));
@@ -427,9 +350,7 @@ void fastInverseDCT2_B32(const TCoeff *src, TCoeff *dst, int shift, int line, in
 
   const TMatrixCoeff *iT = g_trCoreDCT2P32[0];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   TCoeff *orgDst = dst;
-#  endif
 
   const int reducedLine = line - iSkipLine;
   for (j = 0; j < reducedLine; j++) {
@@ -470,21 +391,14 @@ void fastInverseDCT2_B32(const TCoeff *src, TCoeff *dst, int shift, int line, in
       E[k + 8] = EE[7 - k] - EO[7 - k];
     }
     for (k = 0; k < 16; k++) {
-#  if ENABLE_SIMD_TCOEFF_OPS
       dst[k] = E[k] + O[k];
       dst[k + 16] = E[15 - k] - O[15 - k];
-#  else
-      dst[k] = Clip3(outputMinimum, outputMaximum, (E[k] + O[k] + add) >> shift);
-      dst[k + 16] = Clip3(outputMinimum, outputMaximum, (E[15 - k] - O[15 - k] + add) >> shift);
-#  endif
     }
     src++;
     dst += 32;
   }
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip8(orgDst, 32, reducedLine, 32, outputMinimum, outputMaximum, add, shift);
-#  endif
 
   if (iSkipLine) {
     memset(dst, 0, (iSkipLine << 5) * sizeof(TCoeff));
@@ -503,9 +417,7 @@ void fastInverseDCT2_B64(const TCoeff *src, TCoeff *dst, int shift, int line, in
   const int uiTrSize = 64;
   const TMatrixCoeff *iT = g_trCoreDCT2P64[0];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   TCoeff *orgDst = dst;
-#  endif
 
   int j, k;
   TCoeff E[32], O[32];
@@ -577,22 +489,15 @@ void fastInverseDCT2_B64(const TCoeff *src, TCoeff *dst, int shift, int line, in
       E[k + 16] = EE[15 - k] - EO[15 - k];
     }
     for (k = 0; k < 32; k++) {
-#  if ENABLE_SIMD_TCOEFF_OPS
       dst[k] = E[k] + O[k];
       dst[k + 32] = E[31 - k] - O[31 - k];
-#  else
-      dst[k] = Clip3(outputMinimum, outputMaximum, (E[k] + O[k] + rnd_factor) >> shift);
-      dst[k + 32] = Clip3(outputMinimum, outputMaximum, (E[31 - k] - O[31 - k] + rnd_factor) >> shift);
-#  endif
     }
     src++;
     dst += uiTrSize;
   }
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip8(orgDst, 32, line - iSkipLine, 32, outputMinimum, outputMaximum, rnd_factor, shift);
 
-#  endif
   memset(dst, 0, uiTrSize * iSkipLine * sizeof(TCoeff));
 #endif
 }
@@ -608,9 +513,7 @@ void fastInverseDST7_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
 
   const TMatrixCoeff *iT = g_trCoreDST7P4[0];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   TCoeff *orgDst = dst;
-#  endif
 
   const int reducedLine = line - iSkipLine;
   for (i = 0; i < reducedLine; i++) {
@@ -620,26 +523,16 @@ void fastInverseDST7_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
     c[2] = src[0 * line] - src[3 * line];
     c[3] = iT[2] * src[1 * line];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
     dst[0] = iT[0] * c[0] + iT[1] * c[1] + c[3];
     dst[1] = iT[1] * c[2] - iT[0] * c[1] + c[3];
     dst[2] = iT[2] * (src[0 * line] - src[2 * line] + src[3 * line]);
     dst[3] = iT[1] * c[0] + iT[0] * c[2] - c[3];
-#  else
-    dst[0] = Clip3(outputMinimum, outputMaximum, (iT[0] * c[0] + iT[1] * c[1] + c[3] + rnd_factor) >> shift);
-    dst[1] = Clip3(outputMinimum, outputMaximum, (iT[1] * c[2] - iT[0] * c[1] + c[3] + rnd_factor) >> shift);
-    dst[2] = Clip3(outputMinimum, outputMaximum,
-                   (iT[2] * (src[0 * line] - src[2 * line] + src[3 * line]) + rnd_factor) >> shift);
-    dst[3] = Clip3(outputMinimum, outputMaximum, (iT[1] * c[0] + iT[0] * c[2] - c[3] + rnd_factor) >> shift);
-#  endif
 
     dst += 4;
     src++;
   }
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip4(orgDst, 4, reducedLine, 4, outputMinimum, outputMaximum, rnd_factor, shift);
-#  endif
 
   if (iSkipLine) {
     memset(dst, 0, (iSkipLine << 2) * sizeof(TCoeff));
@@ -1003,9 +896,7 @@ void fastInverseDCT8_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
 
   const TMatrixCoeff *iT = g_trCoreDCT8P4[0];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   TCoeff *orgDst = dst;
-#  endif
 
   int c[4];
   const int reducedLine = line - iSkipLine;
@@ -1016,26 +907,16 @@ void fastInverseDCT8_B4(const TCoeff *src, TCoeff *dst, int shift, int line, int
     c[2] = src[3 * line] - src[2 * line];
     c[3] = iT[1] * src[1 * line];
 
-#  if ENABLE_SIMD_TCOEFF_OPS
     dst[0] = iT[3] * c[0] + iT[2] * c[1] + c[3];
     dst[1] = iT[1] * (src[0 * line] - src[2 * line] - src[3 * line]);
     dst[2] = iT[3] * c[2] + iT[2] * c[0] - c[3];
     dst[3] = iT[3] * c[1] - iT[2] * c[2] - c[3];
-#  else
-    dst[0] = Clip3(outputMinimum, outputMaximum, (iT[3] * c[0] + iT[2] * c[1] + c[3] + rnd_factor) >> shift);
-    dst[1] = Clip3(outputMinimum, outputMaximum,
-                   (iT[1] * (src[0 * line] - src[2 * line] - src[3 * line]) + rnd_factor) >> shift);
-    dst[2] = Clip3(outputMinimum, outputMaximum, (iT[3] * c[2] + iT[2] * c[0] - c[3] + rnd_factor) >> shift);
-    dst[3] = Clip3(outputMinimum, outputMaximum, (iT[3] * c[1] - iT[2] * c[2] - c[3] + rnd_factor) >> shift);
-#  endif
 
     dst += 4;
     src++;
   }
 
-#  if ENABLE_SIMD_TCOEFF_OPS
   g_tCoeffOps.roundClip4(orgDst, 4, reducedLine, 4, outputMinimum, outputMaximum, rnd_factor, shift);
-#  endif
 
   if (iSkipLine) {
     memset(dst, 0, (iSkipLine << 2) * sizeof(TCoeff));
@@ -1391,38 +1272,36 @@ void fastInverseDCT8_B32(const TCoeff *src, TCoeff *dst, int shift, int line, in
 #endif
 }
 
-#if ENABLE_SIMD_TCOEFF_OPS
+#define DONT_UNDEF_SIZE_AWARE_PER_EL_OP 1
 
-#  define DONT_UNDEF_SIZE_AWARE_PER_EL_OP 1
+#include "Unit.h"
+#include "Buffer.h"
 
-#  include "Unit.h"
-#  include "Buffer.h"
-
-void cpyResiCore(const TCoeff *src, Pel *dst, ptrdiff_t stride, unsigned width, unsigned height) {
-#  define CPYRESI_OP(ADDR) dst[ADDR] = Pel(src[ADDR]);
-#  define CPYRESI_INC \
-    dst += stride;    \
-    src += width;
+static void cpyResiCore(const TCoeff *src, Pel *dst, ptrdiff_t stride, unsigned width, unsigned height) {
+#define CPYRESI_OP(ADDR) dst[ADDR] = Pel(src[ADDR]);
+#define CPYRESI_INC \
+  dst += stride;    \
+  src += width;
 
   SIZE_AWARE_PER_EL_OP(CPYRESI_OP, CPYRESI_INC);
 
-#  undef CPYRESI_INC
-#  undef CPYRESI_OP
+#undef CPYRESI_INC
+#undef CPYRESI_OP
 }
 
-void clipCore(TCoeff *dst, unsigned width, unsigned height, unsigned stride, const TCoeff outputMin,
-              const TCoeff outputMax, const TCoeff round, const TCoeff shift) {
-#  define CLIP_OP(ADDR) dst[ADDR] = Clip3(outputMin, outputMax, (dst[ADDR] + round) >> shift)
-#  define CLIP_INC dst += stride
+static void clipCore(TCoeff *dst, unsigned width, unsigned height, unsigned stride, const TCoeff outputMin,
+                     const TCoeff outputMax, const TCoeff round, const TCoeff shift) {
+#define CLIP_OP(ADDR) dst[ADDR] = Clip3(outputMin, outputMax, (dst[ADDR] + round) >> shift)
+#define CLIP_INC dst += stride
 
   SIZE_AWARE_PER_EL_OP(CLIP_OP, CLIP_INC);
 
-#  undef CLIP_INC
-#  undef CLIP_OP
+#undef CLIP_INC
+#undef CLIP_OP
 }
 
-void fastInvCore(const TMatrixCoeff *it, const TCoeff *src, TCoeff *dst, unsigned trSize, unsigned lines,
-                 unsigned reducedLines, unsigned rows) {
+static void fastInvCore(const TMatrixCoeff *it, const TCoeff *src, TCoeff *dst, unsigned trSize, unsigned lines,
+                        unsigned reducedLines, unsigned rows) {
   for (int k = 0; k < rows; k++) {
     const TCoeff *srcPtr = &src[k * lines];
     for (int i = 0; i < reducedLines; i++) {
@@ -1436,15 +1315,42 @@ void fastInvCore(const TMatrixCoeff *it, const TCoeff *src, TCoeff *dst, unsigne
   }
 }
 
-TCoeffOps::TCoeffOps() {
+static void invLfnstNxNCore(int *src, int *dst, const uint32_t mode, const uint32_t index, const uint32_t size,
+                            int zeroOutSize) {
+  int maxLog2TrDynamicRange = 15;
+  const TCoeff outputMinimum = -(1 << maxLog2TrDynamicRange);
+  const TCoeff outputMaximum = (1 << maxLog2TrDynamicRange) - 1;
+  const int8_t *trMat = (size > 4) ? g_lfnst8x8[mode][index][0] : g_lfnst4x4[mode][index][0];
+  const int trSize = (size > 4) ? 48 : 16;
+  int resi;
+  int *out = dst;
+
+  CHECKD(index > 2, "index wrong");
+  CHECKD(zeroOutSize != 8 && zeroOutSize != 16, "zeroOutSize must be 8 or 16");
+
+  for (int j = 0; j < trSize; j++, trMat++) {
+    resi = 0;
+    const int8_t *trMatTmp = trMat;
+    int *srcPtr = src;
+
+    for (int i = 0; i < zeroOutSize; i++, trMatTmp += trSize) {
+      resi += *srcPtr++ * *trMatTmp;
+    }
+
+    *out++ = Clip3(outputMinimum, outputMaximum, (static_cast<int>(resi + 64)) >> 7);
+  }
+}
+
+void TCoeffOps::initTCoeffOps(int bitDepth) {
   cpyResi4 = cpyResiCore;
   cpyResi8 = cpyResiCore;
   roundClip4 = clipCore;
   roundClip8 = clipCore;
   fastInvCore4 = fastInvCore;
   fastInvCore8 = fastInvCore;
+  invLfnstNxN = invLfnstNxNCore;
 }
 
-TCoeffOps g_tCoeffOps;
+TCoeffOps::TCoeffOps() {}
 
-#endif
+TCoeffOps g_tCoeffOps;

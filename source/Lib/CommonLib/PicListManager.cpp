@@ -99,31 +99,29 @@ PicListRange PicListManager::getPicListRange(const Picture* pic) const {
   return PicListRange{seqStart, m_cPicList.end()};
 }
 
-#if JVET_Q0814_DPB
 Picture* PicListManager::getNewPicBuffer(const SPS& sps, const PPS& pps, const uint32_t temporalLayer,
-                                         const int layerId, const VPS* vps)
-#else
-Picture* PicListManager::getNewPicBuffer(const SPS& sps, const PPS& pps, const uint32_t temporalLayer,
-                                         const int layerId)
-#endif
-{
+                                         const int layerId, const VPS* vps) {
   CHECK(m_parseFrameDelay < 0, "Parser frame delay is invalid");
 
+#if ADAPTIVE_BIT_DEPTH
+  int bytePerPixel = sps.getBitDepth(CHANNEL_TYPE_LUMA) <= 8 ? 1 : 2;
+#endif
+
   Picture* pcPic = nullptr;
-#if JVET_Q0814_DPB
   const int iMaxRefPicNum =
       (vps == nullptr || vps->m_numLayersInOls[vps->m_iTargetLayer] == 1)
           ? sps.getMaxDecPicBuffering(temporalLayer) + 1
           : vps->getMaxDecPicBuffering(
                 temporalLayer);  // m_uiMaxDecPicBuffering has the space for the picture currently being decoded
-#else
-  const int iMaxRefPicNum = sps.getMaxDecPicBuffering(temporalLayer) +
-                            1;  // m_uiMaxDecPicBuffering has the space for the picture currently being decoded
-#endif
   if (m_cPicList.size() < (uint32_t)iMaxRefPicNum + m_parseFrameDelay) {
     pcPic = new Picture();
+#if ADAPTIVE_BIT_DEPTH
     pcPic->create(sps.getChromaFormatIdc(), Size(pps.getPicWidthInLumaSamples(), pps.getPicHeightInLumaSamples()),
-                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId);
+                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId, sps.getUseWrapAround(), bytePerPixel);
+#else
+    pcPic->create(sps.getChromaFormatIdc(), Size(pps.getPicWidthInLumaSamples(), pps.getPicHeightInLumaSamples()),
+                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId, sps.getUseWrapAround());
+#endif
     m_cPicList.push_back(pcPic);
 
     return pcPic;
@@ -145,8 +143,13 @@ Picture* PicListManager::getNewPicBuffer(const SPS& sps, const PPS& pps, const u
   if (!pcPic) {
     // There is no room for this picture, either because of faulty encoder or dropped NAL. Extend the buffer.
     pcPic = new Picture();
+#if ADAPTIVE_BIT_DEPTH
     pcPic->create(sps.getChromaFormatIdc(), Size(pps.getPicWidthInLumaSamples(), pps.getPicHeightInLumaSamples()),
-                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId);
+                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId, sps.getUseWrapAround(), bytePerPixel);
+#else
+    pcPic->create(sps.getChromaFormatIdc(), Size(pps.getPicWidthInLumaSamples(), pps.getPicHeightInLumaSamples()),
+                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId, sps.getUseWrapAround());
+#endif
     m_cPicList.push_back(pcPic);
 
     return pcPic;
@@ -159,8 +162,13 @@ Picture* PicListManager::getNewPicBuffer(const SPS& sps, const PPS& pps, const u
 #endif
   ) {
     pcPic->destroy();
+#if ADAPTIVE_BIT_DEPTH
     pcPic->create(sps.getChromaFormatIdc(), Size(pps.getPicWidthInLumaSamples(), pps.getPicHeightInLumaSamples()),
-                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId);
+                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId, sps.getUseWrapAround(), bytePerPixel);
+#else
+    pcPic->create(sps.getChromaFormatIdc(), Size(pps.getPicWidthInLumaSamples(), pps.getPicHeightInLumaSamples()),
+                  sps.getMaxCUWidth(), sps.getMaxCUWidth() + 16, layerId, sps.getUseWrapAround());
+#endif
   }
 
   pcPic->resetForUse();
@@ -220,7 +228,7 @@ void PicListManager::applyDoneReferencePictureMarking() {
   Picture* lastDonePic = nullptr;
 
   PicList::iterator firstNotDonePic =
-      std::find_if(m_cPicList.begin(), m_cPicList.end(), [](Picture* p) { return p->done.isBlocked(); });
+      std::find_if(m_cPicList.begin(), m_cPicList.end(), [](Picture* p) { return p->reconstructed == false; });
 
   if (firstNotDonePic == m_cPicList.begin()) {
     // nothing done, yet
@@ -333,8 +341,8 @@ Picture* PicListManager::getNextOutputPic(uint32_t numReorderPicsHighestTid, uin
       stateC = 'X';
     else if (p->inProgress)
       stateC = 'x';
-    else if (!p->slices[0]->parseDone.isBlocked())
-      stateC = '.';
+    // else if (!p->slices[0]->parseDone.isBlocked())
+    //  stateC = '.';
 
     std::cout << p->poc << stateC << ' ';
   }

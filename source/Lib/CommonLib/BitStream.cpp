@@ -53,6 +53,8 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include "BitStream.h"
 #include <string.h>
 #include <memory.h>
+#include "Unit.h"
+#include "UnitTools.h"
 
 using namespace std;
 
@@ -351,13 +353,13 @@ InputBitstream* InputBitstream::extractSubstream(uint32_t uiNumBits) {
   return pResult;
 }
 
-uint32_t InputBitstream::readByteAlignment() {
+uint32_t InputBitstream::readByteAlignment(){
   uint32_t code = 0;
   read(1, code);
-  CHECK(code != 1, "Code is not '1'");
+  CHECK(code != 1, "readByteAlignment: Code is not '1'");
 
   uint32_t numBits = getNumBitsUntilByteAligned();
-  if (numBits) {
+  if(numBits){
     CHECK(numBits > getNumBitsLeft(), "More bits available than left");
     read(numBits, code);
     CHECK(code != 0, "Code not '0'");

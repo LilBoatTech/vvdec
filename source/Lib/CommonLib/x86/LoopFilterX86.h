@@ -65,6 +65,114 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #    include <immintrin.h>
 #  endif
 
+// ====================================================================================================================
+// utility functions
+// ====================================================================================================================
+
+template <bool isChromaHorCTBBoundary, typename T>
+static inline int xCalcDP(const T* piSrc, const ptrdiff_t iOffset) {
+  if (isChromaHorCTBBoundary) {
+    return abs(piSrc[-iOffset * 2] - 2 * piSrc[-iOffset * 2] + piSrc[-iOffset]);
+  } else {
+    return abs(piSrc[-iOffset * 3] - 2 * piSrc[-iOffset * 2] + piSrc[-iOffset]);
+  }
+}
+
+template <typename T>
+static inline int xCalcDQ(const T* piSrc, const ptrdiff_t iOffset) {
+  return abs(piSrc[0] - 2 * piSrc[iOffset] + piSrc[iOffset * 2]);
+}
+
+template <typename T>
+static inline bool xUseStrongFiltering(const T* piSrc, const ptrdiff_t iOffset, const int d, const int beta,
+                                       const int tc, bool sidePisLarge = false, bool sideQisLarge = false,
+                                       int maxFilterLengthP = 7, int maxFilterLengthQ = 7,
+                                       bool isChromaHorCTBBoundary = false) {
+  const T m3 = piSrc[-1 * iOffset];
+  const T m4 = piSrc[0];
+
+  if (!(d < (beta >> 2) && abs(m3 - m4) < ((tc * 5 + 1) >> 1))) return false;
+
+  const T m0 = piSrc[-4 * iOffset];
+  const T m7 = piSrc[3 * iOffset];
+
+  const T m2 = piSrc[-iOffset * 2];
+  int sp3 = abs(m0 - m3);
+  if (isChromaHorCTBBoundary) {
+    sp3 = abs(m2 - m3);
+  }
+  int sq3 = abs(m7 - m4);
+  const int d_strong = sp3 + sq3;
+
+  if (sidePisLarge || sideQisLarge) {
+    if (sidePisLarge) {
+      const T mP4 = piSrc[-iOffset * maxFilterLengthP - iOffset];
+      if (maxFilterLengthP == 7) {
+        const T mP5 = piSrc[-iOffset * 5];
+        const T mP6 = piSrc[-iOffset * 6];
+        const T mP7 = piSrc[-iOffset * 7];
+        sp3 = sp3 + abs(mP5 - mP6 - mP7 + mP4);
+      }
+      sp3 = (sp3 + abs(m0 - mP4) + 1) >> 1;
+    }
+    if (sideQisLarge) {
+      const T m11 = piSrc[iOffset * maxFilterLengthQ];
+      if (maxFilterLengthQ == 7) {
+        const T m8 = piSrc[iOffset * 4];
+        const T m9 = piSrc[iOffset * 5];
+        const T m10 = piSrc[iOffset * 6];
+        sq3 = sq3 + abs(m8 - m9 - m10 + m11);
+      }
+      sq3 = (sq3 + abs(m11 - m7) + 1) >> 1;
+    }
+    return ((sp3 + sq3) < (beta * 3 >> 5)) &&
+           (d < (beta >> 4));
+  } else {
+    return d_strong < (beta >> 3);
+  }
+}
+
+template <X86_VEXT vext>
+static int xCalBsSameRefX86(const MotionInfo& miP, const MotionInfo& miQ, const Picture* piRefP0,
+                            const Picture* piRefP1, const Picture* piRefQ0, const Picture* piRefQ1) {
+  static constexpr int nThreshold = (1 << MV_FRACTIONAL_BITS_INTERNAL) >> 1;
+  int uiBs;
+
+  const __m128i xmvP =
+      _mm_unpacklo_epi64(_mm_loadl_epi64((const __m128i*)&miP.mv[0]), _mm_loadl_epi64((const __m128i*)&miP.mv[1]));
+  const __m128i xmvQ =
+      _mm_unpacklo_epi64(_mm_loadl_epi64((const __m128i*)&miQ.mv[0]), _mm_loadl_epi64((const __m128i*)&miQ.mv[1]));
+  const __m128i xth = _mm_set1_epi32(nThreshold - 1);
+
+  if (piRefP0 != piRefP1) {  // Different L0 & L1
+    if (piRefP0 == piRefQ0) {
+      __m128i xdiff = _mm_sub_epi32(xmvQ, xmvP);
+      xdiff = _mm_abs_epi32(xdiff);
+      xdiff = _mm_cmpgt_epi32(xdiff, xth);
+      uiBs = _mm_testz_si128(xdiff, xdiff) ? 0 : 1;
+    } else {
+      __m128i xmvQ1 = _mm_shuffle_epi32(xmvQ, (2 << 0) + (3 << 2) + (0 << 4) + (1 << 6));
+      __m128i xdiff = _mm_sub_epi32(xmvQ1, xmvP);
+      xdiff = _mm_abs_epi32(xdiff);
+      xdiff = _mm_cmpgt_epi32(xdiff, xth);
+      uiBs = _mm_testz_si128(xdiff, xdiff) ? 0 : 1;
+    }
+  } else {  // Same L0 & L1
+    __m128i xmvQ1 = _mm_shuffle_epi32(xmvQ, (2 << 0) + (3 << 2) + (0 << 4) + (1 << 6));
+    __m128i xdiff = _mm_sub_epi32(xmvQ1, xmvP);
+    xdiff = _mm_abs_epi32(xdiff);
+    xdiff = _mm_cmpgt_epi32(xdiff, xth);
+    uiBs = _mm_testz_si128(xdiff, xdiff) ? 0 : 1;
+
+    xdiff = _mm_sub_epi32(xmvQ, xmvP);
+    xdiff = _mm_abs_epi32(xdiff);
+    xdiff = _mm_cmpgt_epi32(xdiff, xth);
+    uiBs &= _mm_testz_si128(xdiff, xdiff) ? 0 : 1;
+  }
+
+  return uiBs;
+}
+
 template <X86_VEXT vext>
 inline void xPelLumaCore(int64_t m0, int64_t& m1, int64_t& m2, int64_t& m3, int64_t& m4, int64_t& m5, int64_t& m6,
                          int64_t m7, const int tc) {
@@ -646,11 +754,80 @@ static void xFilteringPandQX86(Pel* src, ptrdiff_t step, const ptrdiff_t offset,
 }
 
 template <X86_VEXT vext>
-void LoopFilter::_initLoopFilterX86() {
-  xPelFilterLuma = xPelFilterLumaX86<vext>;
-  xFilteringPandQ = xFilteringPandQX86<vext>;
+static void xEdgeFilterLumaImpX86(Pel* piSrc, ptrdiff_t srcStep, ptrdiff_t offset, bool sidePisLarge, bool sideQisLarge,
+                                  int iBeta, int iTc, int maxFilterLengthP, int maxFilterLengthQ, int iSideThreshold,
+                                  int iThrCut, const ClpRng& clpRng) {
+  const Pel* piSrc0 = piSrc;
+  const Pel* piSrc3 = piSrc + 3 * srcStep;
+
+  const int dp0 = xCalcDP<false, Pel>(piSrc0, offset);
+  const int dq0 = xCalcDQ<Pel>(piSrc0, offset);
+  const int dp3 = xCalcDP<false, Pel>(piSrc3, offset);
+  const int dq3 = xCalcDQ<Pel>(piSrc3, offset);
+  const int d0 = dp0 + dq0;
+  const int d3 = dp3 + dq3;
+
+  if (sidePisLarge || sideQisLarge) {
+    const ptrdiff_t off3 = 3 * offset;
+    const int dp0L = sidePisLarge ? ((dp0 + xCalcDP<false, Pel>(piSrc0 - off3, offset) + 1) >> 1) : dp0;
+    const int dq0L = sideQisLarge ? ((dq0 + xCalcDQ<Pel>(piSrc0 + off3, offset) + 1) >> 1) : dq0;
+    const int dp3L = sidePisLarge ? ((dp3 + xCalcDP<false, Pel>(piSrc3 - off3, offset) + 1) >> 1) : dp3;
+    const int dq3L = sideQisLarge ? ((dq3 + xCalcDQ<Pel>(piSrc3 + off3, offset) + 1) >> 1) : dq3;
+
+    const int d0L = dp0L + dq0L;
+    const int d3L = dp3L + dq3L;
+
+    const int dL = d0L + d3L;
+
+    if (dL < iBeta) {
+      // adjust decision so that it is not read beyond p5 is maxFilterLengthP is 5 and q5 if maxFilterLengthQ is 5
+      const bool swL = xUseStrongFiltering<Pel>(piSrc0, offset, 2 * d0L, iBeta, iTc, sidePisLarge, sideQisLarge,
+                                                maxFilterLengthP, maxFilterLengthQ) &&
+                       xUseStrongFiltering<Pel>(piSrc3, offset, 2 * d3L, iBeta, iTc, sidePisLarge, sideQisLarge,
+                                                maxFilterLengthP, maxFilterLengthQ);
+      if (swL) {
+        xFilteringPandQX86<vext>(reinterpret_cast<Pel*>(piSrc), srcStep, offset, sidePisLarge ? maxFilterLengthP : 3,
+                                 sideQisLarge ? maxFilterLengthQ : 3, iTc);
+
+        return;
+      }
+    }
+  }
+
+  // if( dL >= iBet || !swL )
+  {
+    const int dp = dp0 + dp3;
+    const int dq = dq0 + dq3;
+    const int d = d0 + d3;
+
+    if (d < iBeta) {
+      bool bFilterP = false;
+      bool bFilterQ = false;
+
+      if (maxFilterLengthP > 1 && maxFilterLengthQ > 1) {
+        bFilterP = (dp < iSideThreshold);
+        bFilterQ = (dq < iSideThreshold);
+      }
+
+      bool sw = false;
+
+      if (maxFilterLengthP > 2 && maxFilterLengthQ > 2) {
+        sw = xUseStrongFiltering<Pel>(piSrc0, offset, 2 * d0, iBeta, iTc) &&
+             xUseStrongFiltering<Pel>(piSrc3, offset, 2 * d3, iBeta, iTc);
+      }
+
+      xPelFilterLumaX86<vext>(reinterpret_cast<Pel*>(piSrc), srcStep, offset, iTc, sw, iThrCut, bFilterP, bFilterQ,
+                              clpRng);
+    }
+  }
 }
 
-template void LoopFilter::_initLoopFilterX86<SIMDX86>();
+template <X86_VEXT vext>
+void LoopFilter::_initLoopFilterX86(int bitDepth) {
+  xCalBsSameRef = xCalBsSameRefX86<vext>;
+  xEdgeFilterLumaImp = xEdgeFilterLumaImpX86<vext>;
+}
+
+template void LoopFilter::_initLoopFilterX86<SIMDX86>(int bitDepth);
 
 #endif

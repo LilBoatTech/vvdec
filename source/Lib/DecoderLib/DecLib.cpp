@@ -107,7 +107,7 @@ DecLib::DecLib() {
 #endif
 }
 
-void DecLib::create(int numDecThreads, int parserFrameDelay) {
+void DecLib::create(int numDecThreads, int parserFrameDelay, int numFrameThreads) {
   // run constructor again to ensure all variables, especially in DecLibParser have been reset
   this->~DecLib();
   new (this) DecLib;
@@ -116,42 +116,62 @@ void DecLib::create(int numDecThreads, int parserFrameDelay) {
     numDecThreads = std::thread::hardware_concurrency();
   }
 
-  m_decodeThreadPool.reset(new NoMallocThreadPool(numDecThreads, "DecThread"));
-
+  // m_decodeThreadPool.reset(new NoMallocThreadPool(numDecThreads, "DecThread"));
+  m_threadPool = nullptr;
+  m_numPool = 0;
   if (parserFrameDelay < 0) {
     CHECK(numDecThreads < 0, "invalid number of threads");
     parserFrameDelay = numDecThreads;
   }
-  m_parseFrameDelay = parserFrameDelay;
+  m_parseFrameDelay = 0;
 
   m_picListManager.create(m_parseFrameDelay, (int)m_decLibRecon.size());
-  m_decLibParser.create(m_decodeThreadPool.get(), m_parseFrameDelay, (int)m_decLibRecon.size(), numDecThreads);
+  m_decLibParser.create(m_parseFrameDelay, (int)m_decLibRecon.size(), numDecThreads);
 
   int id = 0;
-  for (auto& dec : m_decLibRecon) {
-    dec.create(m_decodeThreadPool.get(), id++);
+  bool createFrameThreads = true;
+  if (numFrameThreads <= 0) numFrameThreads = 1;
+  if (numDecThreads > 0) {
+    m_threadPool = vvdec::VVDecThreadPool::allocThreadPools(numFrameThreads, numDecThreads, m_numPool);
   }
+  if (numFrameThreads == 1 && m_threadPool == nullptr) createFrameThreads = false;
+  m_decLibRecon.resize(numFrameThreads);
+  if (m_threadPool) {
+    for (auto& dec : m_decLibRecon) {
+      int index = id++;
+      int poolIndex = index % m_numPool;
+      dec.create(index, this, &m_threadPool[poolIndex], createFrameThreads);
+    }
+    for (int i = 0; i < m_numPool; i++) m_threadPool[i].start();
+  } else {
+    for (auto& dec : m_decLibRecon) {
+      dec.create(id++, this, nullptr, createFrameThreads);
+    }
+  }
+#ifndef NDEBUG
+  // std::stringstream cssCap;
+  // cssCap << "THREADS="     << numDecThreads << "; "
+  //       << "PARSE_DELAY=" << parserFrameDelay << "; ";
+#  if ENABLE_SIMD_OPT
+  // std::string cSIMD;
+  // cssCap << "SIMD=" << read_x86_extension( cSIMD );
+#  else
+  // cssCap << "SIMD=NONE";
+#  endif
 
-  std::stringstream cssCap;
-  cssCap << "THREADS=" << numDecThreads << "; "
-         << "PARSE_DELAY=" << parserFrameDelay << "; ";
-#if ENABLE_SIMD_OPT
-  std::string cSIMD;
-  cssCap << "SIMD=" << read_x86_extension(cSIMD);
-#else
-  cssCap << "SIMD=NONE";
+  // m_sDecoderCapabilities = cssCap.str();
+  // msg( INFO, "[%s]\n", m_sDecoderCapabilities.c_str() );
 #endif
-
-  m_sDecoderCapabilities = cssCap.str();
-  msg(INFO, "[%s]\n", m_sDecoderCapabilities.c_str());
-
   DTRACE_UPDATE(g_trace_ctx, std::make_pair("final", 1));
 }
 
 void DecLib::destroy() {
-  if (m_decodeThreadPool) {
-    m_decodeThreadPool->shutdown(true);
-    m_decodeThreadPool.reset();
+  if (m_threadPool != nullptr) {
+    for (int i = 0; i < m_numPool; i++) {
+      m_threadPool[i].stopWorkers();
+    }
+    delete[] m_threadPool;
+    m_threadPool = nullptr;
   }
 
   m_decLibParser.destroy();
@@ -160,24 +180,20 @@ void DecLib::destroy() {
   }
 
   m_picListManager.deleteBuffers();
+  while (m_residuals.empty() == false) {
+    auto e = m_residuals.top();
+    m_residuals.pop();
+    xFree(e.first);
+  }
 }
 
-#if JVET_P0288_PIC_OUTPUT
-Picture* DecLib::decode(InputNALUnit& nalu, int* pSkipFrame, int iTargetLayer)
-#else
-Picture* DecLib::decode(InputNALUnit& nalu, int* pSkipFrame)
-#endif
-{
+Picture* DecLib::decode(InputNALUnit& nalu, int* pSkipFrame, int iTargetLayer) {
   PROFILER_SCOPE_AND_STAGE(1, g_timeProfiler, P_NALU_SLICE_PIC_HL);
   Picture* pcParsedPic = nullptr;
   if (m_iMaxTemporalLayer >= 0 && nalu.m_temporalId > m_iMaxTemporalLayer) {
     pcParsedPic = nullptr;
   } else {
-#if JVET_P0288_PIC_OUTPUT
     pcParsedPic = m_decLibParser.parse(nalu, pSkipFrame, iTargetLayer);
-#else
-    pcParsedPic = m_decLibParser.parse(nalu, pSkipFrame);
-#endif
   }
 
   if (pcParsedPic) {
@@ -289,10 +305,8 @@ int DecLib::finishPicture(Picture* pcPic, MsgLevel msgl)
 
   m_picListManager.applyDoneReferencePictureMarking();
 
-#if JVET_Q0044_SLICE_IDX_WITH_SUBPICS
   m_maxDecSubPicIdx = 0;
   m_maxDecSliceAddrInSubPic = -1;
-#endif
 
   if (m_parseFrameDelay > 0) {
     checkPictureHashSEI(pcPic);
@@ -303,6 +317,86 @@ int DecLib::finishPicture(Picture* pcPic, MsgLevel msgl)
   return pcSlice->getPOC();
 }
 
+CFrameData::~CFrameData() {
+  std::unique_lock<std::mutex> t(lock);
+  while (m_residuals.empty() == false) {
+    auto e = m_residuals.top();
+    m_residuals.pop();
+    xFree(e.first);
+  }
+  while (m_cs.empty() == false) {
+    auto e = m_cs.top();
+    m_cs.pop();
+    free(e.first.saoBlkParam);
+    free(e.first.ctuCuPtr);
+    free(e.first.ctuLoopFilterDataHorEdge);
+  }
+}
+
+Pel* CFrameData::getNewResidual(size_t size) {
+  Pel* ret = NULL;
+  std::unique_lock<std::mutex> t(lock);
+  while (m_residuals.empty() == false) {
+    auto e = m_residuals.top();
+    m_residuals.pop();
+    if (e.second == size) {
+      ret = e.first;
+      break;
+    } else {
+      xFree(e.first);
+    }
+  }
+  if (ret == NULL) {
+    ret = xMalloc(Pel, size);
+  }
+  return ret;
+}
+
+void CFrameData::recycleResidual(Pel* buf, size_t size) {
+  std::pair<Pel*, size_t> e;
+  e.first = buf;
+  e.second = size;
+  std::unique_lock<std::mutex> t(lock);
+  m_residuals.push(e);
+}
+
+StCSMemory CFrameData::getCSMemory(size_t size) {
+  StCSMemory ret;
+  bool find = false;
+  std::unique_lock<std::mutex> t(lock);
+  while (m_cs.empty() == false) {
+    auto e = m_cs.top();
+    m_cs.pop();
+    if (e.second == size) {
+      ret = e.first;
+      find = true;
+      break;
+    } else {
+      // xFree(e.first);
+      free(e.first.saoBlkParam);
+      free(e.first.ctuCuPtr);
+      free(e.first.ctuLoopFilterDataHorEdge);
+    }
+  }
+  if (!find) {
+    // ret = xMalloc(Pel, size);
+    ret.saoBlkParam = (SAOBlkParam*)malloc(size * sizeof(SAOBlkParam));
+    ret.ctuCuPtr = (CtuCuPtr*)malloc(size * sizeof(CtuCuPtr));
+    ret.ctuLoopFilterDataHorEdge = (CtuLoopFilterData*)malloc(size * sizeof(CtuLoopFilterData));
+  }
+  return ret;
+}
+
+void CFrameData::recycleCSMemory(SAOBlkParam* saoBlkParam, CtuLoopFilterData* ctuLoopFilterDataHorEdge,
+                                 CtuCuPtr* ctuCuPtr, size_t size) {
+  std::pair<StCSMemory, size_t> e;
+  e.first.saoBlkParam = saoBlkParam;
+  e.first.ctuCuPtr = ctuCuPtr;
+  e.first.ctuLoopFilterDataHorEdge = ctuLoopFilterDataHorEdge;
+  e.second = size;
+  std::unique_lock<std::mutex> t(lock);
+  m_cs.push(e);
+}
 void DecLib::checkPictureHashSEI(Picture* pcPic) {
   if (!m_decodedPictureHashSEIEnabled) {
     return;
@@ -354,7 +448,7 @@ Picture* DecLib::getNextOutputPic(bool bFlush) {
   }
 
   Picture* outPic = m_picListManager.getNextOutputPic(numReorderPicsHighestTid, maxDecPicBufferingHighestTid, bFlush);
-  CHECK(outPic && outPic->done.isBlocked(), "next output-pic is not done yet.");
+  // CHECK(outPic && outPic->done.isBlocked(), "next output-pic is not done yet.");
   return outPic;
 }
 
@@ -362,24 +456,8 @@ void DecLib::decompressPicture(Picture* pcPic) {
   DecLibRecon* decLibInstance = &m_decLibRecon.front();
   move_to_end(m_decLibRecon.begin(), m_decLibRecon);
 
-  while (pcPic->wasLost) {
-    Picture* donePic = decLibInstance->waitForPrevDecompressedPic();
-    if (donePic) {
-      finishPicture(donePic);
-    }
-
-    m_decLibParser.recreateLostPicture(pcPic);
-    finishPicture(pcPic);
-
-    pcPic = m_decLibParser.getNextDecodablePicture();
-    if (!pcPic) {
-      msg(WARNING, "a lost picture was filled in, but no following picture is available for decoding.");
-      return;
-    }
-  }
-
   Picture* donePic = decLibInstance->waitForPrevDecompressedPic();
-
+  decLibInstance->updateFuncPtr(pcPic);
   decLibInstance->decompressPicture(pcPic);
 
   if (donePic) {

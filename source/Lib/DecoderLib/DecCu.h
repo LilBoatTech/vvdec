@@ -75,6 +75,9 @@ THE POSSIBILITY OF SUCH DAMAGE.
 class DecCu {
   // Task definition
  public:
+  void TaskWaitReferenceReady(CodingStructure& cs, const UnitArea& ctuArea, MotionHist& hist, bool bWait);
+  void TaskReconAll(CodingStructure& cs, const UnitArea& ctuArea, MotionHist& hist);
+  void TaskReconAll2(CodingStructure& cs, const UnitArea& ctuArea);
   void TaskDeriveCtuMotionInfo(CodingStructure& cs, const UnitArea& ctuArea, MotionHist& hist);
   void TaskInterCtu(CodingStructure& cs, const UnitArea& ctuArea);
   void TaskTrafoCtu(CodingStructure& cs, const UnitArea& ctuArea);
@@ -86,7 +89,8 @@ class DecCu {
   virtual ~DecCu();
 
   /// initialize access channels
-  void init(IntraPrediction* pcIntra, InterPrediction* pcInter, Reshape* pcReshape, TrQuant* pcTrQuant);
+  void init(IntraPrediction* pcIntra, InterPrediction* pcInter, Reshape* pcReshape, TrQuant* pcTrQuant,
+            LoopFilter* pcLoopFilter);
 
   void create();
   void destroy();
@@ -105,8 +109,10 @@ class DecCu {
   IntraPrediction* m_pcIntraPred;
   InterPrediction* m_pcInterPred;
   TrQuant* m_pcTrQuant;
+  LoopFilter* m_cLoopFilter;
 
   MergeCtx m_geoMrgCtx;
+  Pel* m_predBuf;
 };
 
 //! \}

@@ -711,10 +711,10 @@ template <>
 void simdFilter5x5Blk<AVX2>(const AlfClassifier *, const PelUnitBuf &recDst, const CPelUnitBuf &recSrc, const Area &blk,
                             const ComponentID compId, const short *filterSet, const short *fClipSet,
                             const ClpRng &clpRng, const CodingStructure &cs, int vbCTUHeight, int vbPos) {
-  CHECK(!isChroma(compId), "ALF 5x5 filter is for chroma only");
+  CHECK( !isChroma( compId ), "ALF 5x5 filter is for chroma only" );
 
   const CPelBuf srcBuffer = recSrc.get(compId);
-  PelBuf dstBuffer = recDst.get(compId);
+  PelBuf        dstBuffer = recDst.get(compId);
 
   const size_t srcStride = srcBuffer.stride;
   const size_t dstStride = dstBuffer.stride;
@@ -722,45 +722,49 @@ void simdFilter5x5Blk<AVX2>(const AlfClassifier *, const PelUnitBuf &recDst, con
   constexpr int SHIFT = AdaptiveLoopFilter::m_NUM_BITS - 1;
   constexpr int ROUND = 1 << (SHIFT - 1);
 
-  const size_t width = blk.width;
+  const size_t width  = blk.width;
   const size_t height = blk.height;
 
   constexpr size_t STEP_X = 16;
-  constexpr size_t STEP_Y = 4;
+  constexpr size_t STEP_Y =  4;
 
   const Pel *src = srcBuffer.buf + blk.y * srcStride + blk.x;
-  Pel *dst = dstBuffer.buf + blk.y * dstStride + blk.x;
+  Pel *      dst = dstBuffer.buf + blk.y * dstStride + blk.x;
 
-  const __m256i mmOffset = _mm256_set1_epi32(ROUND);
+  
+  const __m256i mmOffset = _mm256_set1_epi32( ROUND );
   const __m256i mmOffset1 = _mm256_set1_epi32((1 << ((SHIFT + 3) - 1)) - ROUND);
-  const __m256i mmMin = _mm256_set1_epi16(clpRng.min());
-  const __m256i mmMax = _mm256_set1_epi16(clpRng.max());
+  const __m256i mmMin    = _mm256_set1_epi16( clpRng.min() );
+  const __m256i mmMax    = _mm256_set1_epi16( clpRng.max() );
 
   __m256i params[2][3];
-  __m256i fs = _mm256_castsi128_si256(_mm_loadu_si128((__m128i *)filterSet));
-  fs = _mm256_inserti128_si256(fs, _mm256_extracti128_si256(fs, 0), 1);
+  __m256i fs   = _mm256_castsi128_si256( _mm_loadu_si128( ( __m128i* ) filterSet ) );
+  fs = _mm256_inserti128_si256( fs, _mm256_extracti128_si256( fs, 0 ), 1 );
   params[0][0] = _mm256_shuffle_epi32(fs, 0x00);
   params[0][1] = _mm256_shuffle_epi32(fs, 0x55);
   params[0][2] = _mm256_shuffle_epi32(fs, 0xaa);
-  __m256i fc = _mm256_castsi128_si256(_mm_loadu_si128((__m128i *)fClipSet));
-  fc = _mm256_inserti128_si256(fc, _mm256_extracti128_si256(fc, 0), 1);
-  params[1][0] = _mm256_shuffle_epi32(fc, 0x00);
-  params[1][1] = _mm256_shuffle_epi32(fc, 0x55);
-  params[1][2] = _mm256_shuffle_epi32(fc, 0xaa);
+  __m256i fc   = _mm256_castsi128_si256( _mm_loadu_si128( ( __m128i* ) fClipSet ) );
+  fc = _mm256_inserti128_si256( fc, _mm256_extracti128_si256( fc, 0 ), 1 );
+  params[1][0] = _mm256_shuffle_epi32( fc, 0x00 );
+  params[1][1] = _mm256_shuffle_epi32( fc, 0x55 );
+  params[1][2] = _mm256_shuffle_epi32( fc, 0xaa );
 
-  for (int i = 0; i < height; i += STEP_Y) {
-    for (int j = 0; j < width; j += STEP_X) {
+  for (int i = 0; i < height; i += STEP_Y)
+  {
+    for (int j = 0; j < width; j += STEP_X)
+    {
       {
         const Pel *pImg0 = src + j;
-
-        _mm_prefetch((const char *)&pImg0[-2 * srcStride - 0 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[-1 * srcStride - 1 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[0 * srcStride - 2 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[1 * srcStride - 2 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[2 * srcStride - 2 + 0], _MM_HINT_T0);
+        
+        _mm_prefetch( ( const char * ) &pImg0[-2 * srcStride - 0 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[-1 * srcStride - 1 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[ 0 * srcStride - 2 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[ 1 * srcStride - 2 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[ 2 * srcStride - 2 +  0], _MM_HINT_T0 );
       }
 
-      for (size_t ii = 0; ii < STEP_Y; ii++) {
+      for (size_t ii = 0; ii < STEP_Y; ii++)
+      {
         const Pel *pImg0, *pImg1, *pImg2, *pImg3, *pImg4;
 
         pImg0 = src + j + ii * srcStride;
@@ -768,37 +772,38 @@ void simdFilter5x5Blk<AVX2>(const AlfClassifier *, const PelUnitBuf &recDst, con
         pImg2 = pImg0 - srcStride;
         pImg3 = pImg1 + srcStride;
         pImg4 = pImg2 - srcStride;
+        
+        _mm_prefetch( ( const char * ) &pImg0[ 3 * srcStride - 2 +  0], _MM_HINT_T0 );
 
-        _mm_prefetch((const char *)&pImg0[3 * srcStride - 2 + 0], _MM_HINT_T0);
+        const int yVb = ( blk.y + i + ii ) & ( vbCTUHeight - 1 );
 
-        const int yVb = (blk.y + i + ii) & (vbCTUHeight - 1);
-
-        if (yVb < vbPos && (yVb >= vbPos - 2))  // above
+        if( yVb < vbPos && ( yVb >= vbPos - 2 ) )   // above
         {
-          pImg1 = (yVb == vbPos - 1) ? pImg0 : pImg1;
-          pImg3 = (yVb >= vbPos - 2) ? pImg1 : pImg3;
+          pImg1 = ( yVb == vbPos - 1 ) ? pImg0 : pImg1;
+          pImg3 = ( yVb >= vbPos - 2 ) ? pImg1 : pImg3;
 
-          pImg2 = (yVb == vbPos - 1) ? pImg0 : pImg2;
-          pImg4 = (yVb >= vbPos - 2) ? pImg2 : pImg4;
-        } else if (yVb >= vbPos && (yVb <= vbPos + 1))  // bottom
+          pImg2 = ( yVb == vbPos - 1 ) ? pImg0 : pImg2;
+          pImg4 = ( yVb >= vbPos - 2 ) ? pImg2 : pImg4;
+        }
+        else if( yVb >= vbPos && ( yVb <= vbPos + 1 ) )   // bottom
         {
-          pImg2 = (yVb == vbPos) ? pImg0 : pImg2;
-          pImg4 = (yVb <= vbPos + 1) ? pImg2 : pImg4;
+          pImg2 = ( yVb == vbPos     ) ? pImg0 : pImg2;
+          pImg4 = ( yVb <= vbPos + 1 ) ? pImg2 : pImg4;
 
-          pImg1 = (yVb == vbPos) ? pImg0 : pImg1;
-          pImg3 = (yVb <= vbPos + 1) ? pImg1 : pImg3;
+          pImg1 = ( yVb == vbPos     ) ? pImg0 : pImg1;
+          pImg3 = ( yVb <= vbPos + 1 ) ? pImg1 : pImg3;
         }
 
-        __m256i cur = _mm256_loadu_si256((const __m256i *)pImg0);
+        __m256i cur = _mm256_loadu_si256((const __m256i *) pImg0);
 
         __m256i accumA = mmOffset;
         __m256i accumB = mmOffset;
 
         auto process2coeffs = [&](const int i, const Pel *ptr0, const Pel *ptr1, const Pel *ptr2, const Pel *ptr3) {
-          const __m256i val00 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr0), cur);
-          const __m256i val10 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr2), cur);
-          const __m256i val01 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr1), cur);
-          const __m256i val11 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr3), cur);
+          const __m256i val00 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr0), cur);
+          const __m256i val10 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr2), cur);
+          const __m256i val01 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr1), cur);
+          const __m256i val11 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr3), cur);
 
           __m256i val01A = _mm256_unpacklo_epi16(val00, val10);
           __m256i val01B = _mm256_unpackhi_epi16(val00, val10);
@@ -807,25 +812,25 @@ void simdFilter5x5Blk<AVX2>(const AlfClassifier *, const PelUnitBuf &recDst, con
 
           __m256i limit01A = params[1][i];
 
-          val01A = _mm256_min_epi16(val01A, limit01A);
-          val01B = _mm256_min_epi16(val01B, limit01A);
-          val01C = _mm256_min_epi16(val01C, limit01A);
-          val01D = _mm256_min_epi16(val01D, limit01A);
+          val01A = _mm256_min_epi16( val01A, limit01A );
+          val01B = _mm256_min_epi16( val01B, limit01A );
+          val01C = _mm256_min_epi16( val01C, limit01A );
+          val01D = _mm256_min_epi16( val01D, limit01A );
 
-          limit01A = _mm256_sub_epi16(_mm256_setzero_si256(), limit01A);
+          limit01A = _mm256_sub_epi16( _mm256_setzero_si256(), limit01A );
 
-          val01A = _mm256_max_epi16(val01A, limit01A);
-          val01B = _mm256_max_epi16(val01B, limit01A);
-          val01C = _mm256_max_epi16(val01C, limit01A);
-          val01D = _mm256_max_epi16(val01D, limit01A);
+          val01A = _mm256_max_epi16( val01A, limit01A );
+          val01B = _mm256_max_epi16( val01B, limit01A );
+          val01C = _mm256_max_epi16( val01C, limit01A );
+          val01D = _mm256_max_epi16( val01D, limit01A );
 
-          val01A = _mm256_add_epi16(val01A, val01C);
-          val01B = _mm256_add_epi16(val01B, val01D);
+          val01A = _mm256_add_epi16( val01A, val01C );
+          val01B = _mm256_add_epi16( val01B, val01D );
 
           __m256i coeff01A = params[0][i];
 
-          accumA = _mm256_add_epi32(accumA, _mm256_madd_epi16(val01A, coeff01A));
-          accumB = _mm256_add_epi32(accumB, _mm256_madd_epi16(val01B, coeff01A));
+          accumA = _mm256_add_epi32( accumA, _mm256_madd_epi16( val01A, coeff01A ) );
+          accumB = _mm256_add_epi32( accumB, _mm256_madd_epi16( val01B, coeff01A ) );
         };
 
         process2coeffs(0, pImg3 + 0, pImg4 + 0, pImg1 + 1, pImg2 - 1);
@@ -834,10 +839,13 @@ void simdFilter5x5Blk<AVX2>(const AlfClassifier *, const PelUnitBuf &recDst, con
 
         bool isNearVBabove = yVb < vbPos && (yVb >= vbPos - 1);
         bool isNearVBbelow = yVb >= vbPos && (yVb <= vbPos);
-        if (!(isNearVBabove || isNearVBbelow)) {
+        if (!(isNearVBabove || isNearVBbelow))
+        {
           accumA = _mm256_srai_epi32(accumA, SHIFT);
           accumB = _mm256_srai_epi32(accumB, SHIFT);
-        } else {
+        }
+        else
+        {
           accumA = _mm256_srai_epi32(_mm256_add_epi32(accumA, mmOffset1), SHIFT + 3);
           accumB = _mm256_srai_epi32(_mm256_add_epi32(accumB, mmOffset1), SHIFT + 3);
         }
@@ -845,23 +853,32 @@ void simdFilter5x5Blk<AVX2>(const AlfClassifier *, const PelUnitBuf &recDst, con
         accumA = _mm256_add_epi16(accumA, cur);
         accumA = _mm256_min_epi16(mmMax, _mm256_max_epi16(accumA, mmMin));
 
-        if (j + STEP_X <= width) {
-          _mm256_storeu_si256((__m256i *)(dst + ii * dstStride + j), accumA);
-        } else if (j + 12 <= width) {
-          _mm_storeu_si128((__m128i *)(dst + ii * dstStride + j), _mm256_castsi256_si128(accumA));
-          _mm_storel_epi64((__m128i *)(dst + ii * dstStride + j + 8), _mm256_extracti128_si256(accumA, 1));
-        } else if (j + 8 <= width) {
-          _mm_storeu_si128((__m128i *)(dst + ii * dstStride + j), _mm256_castsi256_si128(accumA));
-        } else {
-          _mm_storel_epi64((__m128i *)(dst + ii * dstStride + j), _mm256_castsi256_si128(accumA));
+        if (j + STEP_X <= width)
+        {
+          _mm256_storeu_si256((__m256i *) (dst + ii * dstStride + j), accumA);
+        }
+        else if(j + 12 <= width)
+        {
+          _mm_storeu_si128((__m128i *) (dst + ii * dstStride + j    ), _mm256_castsi256_si128(accumA));
+          _mm_storel_epi64((__m128i *) (dst + ii * dstStride + j + 8), _mm256_extracti128_si256(accumA, 1));
+        }
+        else if(j + 8 <= width)
+        {
+          _mm_storeu_si128((__m128i *) (dst + ii * dstStride + j), _mm256_castsi256_si128(accumA));
+        }
+        else
+        {
+          _mm_storel_epi64((__m128i *) (dst + ii * dstStride + j), _mm256_castsi256_si128( accumA ) );
         }
       }
+
     }
 
     src += srcStride * STEP_Y;
     dst += dstStride * STEP_Y;
   }
 }
+
 
 #  endif
 #  if 0
@@ -926,39 +943,10 @@ static void simdFilter7x7Blk(const AlfClassifier *classifier, const PelUnitBuf &
         const short *clip = fClipSet + cl.classIdx * MAX_NUM_ALF_LUMA_COEFF +
                             cl.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
 
-#  if 0
-        const int transposeIdx = cl.transposeIdx;
-        const int classIdx     = cl.classIdx;
-
-        static_assert(sizeof(*filterSet) == 2, "ALF coeffs must be 16-bit wide");
-
-        __m128i rawCoeff0, rawCoeff1;
-
-        if (isPCMFilterDisabled && classIdx == AdaptiveLoopFilter::m_ALF_UNUSED_CLASSIDX
-            && transposeIdx == AdaptiveLoopFilter::m_ALF_UNUSED_TRANSPOSIDX)
-        {
-          rawCoeff0 = _mm_setzero_si128();
-          rawCoeff1 = _mm_setzero_si128();
-        }
-        else
-        {
-          rawCoeff0 = _mm_loadu_si128((const __m128i *) (filterSet + classIdx * MAX_NUM_ALF_LUMA_COEFF));
-          rawCoeff1 = _mm_loadl_epi64((const __m128i *) (filterSet + classIdx * MAX_NUM_ALF_LUMA_COEFF + 8));
-        }
-
-        const __m128i s0 = _mm_loadu_si128((const __m128i *) shuffleTab[transposeIdx][0]);
-        const __m128i s1 = _mm_xor_si128(s0, _mm_set1_epi8((char)0x80));
-        const __m128i s2 = _mm_loadu_si128((const __m128i *) shuffleTab[transposeIdx][1]);
-        const __m128i s3 = _mm_xor_si128(s2, _mm_set1_epi8((char)0x80));
-
-        const __m128i rawCoeffLo = _mm_or_si128(_mm_shuffle_epi8(rawCoeff0, s0), _mm_shuffle_epi8(rawCoeff1, s1));
-        const __m128i rawCoeffHi = _mm_or_si128(_mm_shuffle_epi8(rawCoeff0, s2), _mm_shuffle_epi8(rawCoeff1, s3));
-#  else
         const __m128i rawCoeffLo = _mm_loadu_si128((const __m128i *)(coef));
         const __m128i rawCoeffHi = _mm_loadl_epi64((const __m128i *)(coef + 8));
         const __m128i rawClipLo = _mm_loadu_si128((const __m128i *)(clip));
         const __m128i rawClipHi = _mm_loadl_epi64((const __m128i *)(clip + 8));
-#  endif
 
         params[k][0][0] = _mm_shuffle_epi32(rawCoeffLo, 0x00);
         params[k][0][1] = _mm_shuffle_epi32(rawCoeffLo, 0x55);
@@ -1099,14 +1087,14 @@ template <>
 void simdFilter7x7Blk<AVX2>(const AlfClassifier *classifier, const PelUnitBuf &recDst, const CPelUnitBuf &recSrc,
                             const Area &blk, const ComponentID compId, const short *filterSet, const short *fClipSet,
                             const ClpRng &clpRng, const CodingStructure &cs, int vbCTUHeight, int vbPos) {
-  if (blk.width & 16) {
-    simdFilter7x7Blk<SSE42>(classifier, recDst, recSrc, blk, compId, filterSet, fClipSet, clpRng, cs, vbCTUHeight,
-                            vbPos);
+  if( blk.width & 15 )
+  {
+    simdFilter7x7Blk<SSE42>( classifier, recDst, recSrc, blk, compId, filterSet, fClipSet, clpRng, cs, vbCTUHeight, vbPos );
     return;
   }
 
   const CPelBuf srcBuffer = recSrc.get(compId);
-  PelBuf dstBuffer = recDst.get(compId);
+  PelBuf        dstBuffer = recDst.get(compId);
 
   const size_t srcStride = srcBuffer.stride;
   const size_t dstStride = dstBuffer.stride;
@@ -1114,85 +1102,73 @@ void simdFilter7x7Blk<AVX2>(const AlfClassifier *classifier, const PelUnitBuf &r
   constexpr int SHIFT = AdaptiveLoopFilter::m_NUM_BITS - 1;
   constexpr int ROUND = 1 << (SHIFT - 1);
 
-  const size_t width = blk.width;
+  const size_t width  = blk.width;
   const size_t height = blk.height;
 
   constexpr size_t STEP_X = 16;
-  constexpr size_t STEP_Y = 4;
+  constexpr size_t STEP_Y =  4;
 
   const Pel *src = srcBuffer.buf + blk.y * srcStride + blk.x;
-  Pel *dst = dstBuffer.buf + blk.y * dstStride + blk.x;
+  Pel *      dst = dstBuffer.buf + blk.y * dstStride + blk.x;
 
-  const __m256i mmMin = _mm256_set1_epi16(clpRng.min());
-  const __m256i mmMax = _mm256_set1_epi16(clpRng.max());
+  const __m256i mmMin    = _mm256_set1_epi16( clpRng.min() );
+  const __m256i mmMax    = _mm256_set1_epi16( clpRng.max() );
 
-  for (size_t i = 0; i < height; i += STEP_Y) {
-    for (size_t j = 0; j < width; j += STEP_X) {
+  for (size_t i = 0; i < height; i += STEP_Y)
+  {
+    for (size_t j = 0; j < width; j += STEP_X)
+    {
       __m256i params[2][2][6];
 
-      for (int k = 0; k < 2; ++k) {
-        const AlfClassifier &cl0 = classifier[(i / 4) * (MAX_CU_SIZE / 4) + (j / 4) + k];
-        const short *coef0 = filterSet + cl0.classIdx * MAX_NUM_ALF_LUMA_COEFF +
-                             cl0.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
-        const short *clip0 = fClipSet + cl0.classIdx * MAX_NUM_ALF_LUMA_COEFF +
-                             cl0.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
+      for (int k = 0; k < 2; ++k)
+      {
+        const AlfClassifier &cl0 = classifier[( i / 4 ) * ( MAX_CU_SIZE / 4 ) + ( j / 4 ) + k];
+        const short *coef0 = filterSet + cl0.classIdx * MAX_NUM_ALF_LUMA_COEFF + cl0.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
+        const short *clip0 = fClipSet  + cl0.classIdx * MAX_NUM_ALF_LUMA_COEFF + cl0.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
 
-        const __m128i rawCoeffLo0 = _mm_loadu_si128((const __m128i *)(coef0));
-        const __m128i rawCoeffHi0 = _mm_loadl_epi64((const __m128i *)(coef0 + 8));
-        const __m128i rawClipLo0 = _mm_loadu_si128((const __m128i *)(clip0));
-        const __m128i rawClipHi0 = _mm_loadl_epi64((const __m128i *)(clip0 + 8));
+        const __m128i rawCoeffLo0 = _mm_loadu_si128( ( const __m128i * ) ( coef0 ) );
+        const __m128i rawCoeffHi0 = _mm_loadl_epi64( ( const __m128i * ) ( coef0 + 8 ) );
+        const __m128i rawClipLo0  = _mm_loadu_si128( ( const __m128i * ) ( clip0 ) );
+        const __m128i rawClipHi0  = _mm_loadl_epi64( ( const __m128i * ) ( clip0 + 8 ) );
+        
+        const AlfClassifier &cl1 = classifier[( i / 4 ) * ( MAX_CU_SIZE / 4 ) + ( j / 4 ) + k + 2];
+        const short *coef1 = filterSet + cl1.classIdx * MAX_NUM_ALF_LUMA_COEFF + cl1.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
+        const short *clip1 = fClipSet  + cl1.classIdx * MAX_NUM_ALF_LUMA_COEFF + cl1.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
 
-        const AlfClassifier &cl1 = classifier[(i / 4) * (MAX_CU_SIZE / 4) + (j / 4) + k + 2];
-        const short *coef1 = filterSet + cl1.classIdx * MAX_NUM_ALF_LUMA_COEFF +
-                             cl1.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
-        const short *clip1 = fClipSet + cl1.classIdx * MAX_NUM_ALF_LUMA_COEFF +
-                             cl1.transposeIdx * MAX_NUM_ALF_LUMA_COEFF * MAX_NUM_ALF_CLASSES;
+        const __m128i rawCoeffLo1 = _mm_loadu_si128( ( const __m128i * ) ( coef1 ) );
+        const __m128i rawCoeffHi1 = _mm_loadl_epi64( ( const __m128i * ) ( coef1 + 8 ) );
+        const __m128i rawClipLo1  = _mm_loadu_si128( ( const __m128i * ) ( clip1 ) );
+        const __m128i rawClipHi1  = _mm_loadl_epi64( ( const __m128i * ) ( clip1 + 8 ) );
 
-        const __m128i rawCoeffLo1 = _mm_loadu_si128((const __m128i *)(coef1));
-        const __m128i rawCoeffHi1 = _mm_loadl_epi64((const __m128i *)(coef1 + 8));
-        const __m128i rawClipLo1 = _mm_loadu_si128((const __m128i *)(clip1));
-        const __m128i rawClipHi1 = _mm_loadl_epi64((const __m128i *)(clip1 + 8));
+        params[k][0][0] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawCoeffLo0, 0x00) ), _mm_shuffle_epi32(rawCoeffLo1, 0x00), 1 );
+        params[k][0][1] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawCoeffLo0, 0x55) ), _mm_shuffle_epi32(rawCoeffLo1, 0x55), 1 );
+        params[k][0][2] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawCoeffLo0, 0xaa) ), _mm_shuffle_epi32(rawCoeffLo1, 0xaa), 1 );
+        params[k][0][3] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawCoeffLo0, 0xff) ), _mm_shuffle_epi32(rawCoeffLo1, 0xff), 1 );
+        params[k][0][4] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawCoeffHi0, 0x00) ), _mm_shuffle_epi32(rawCoeffHi1, 0x00), 1 );
+        params[k][0][5] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawCoeffHi0, 0x55) ), _mm_shuffle_epi32(rawCoeffHi1, 0x55), 1 );
 
-        params[k][0][0] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawCoeffLo0, 0x00)),
-                                                  _mm_shuffle_epi32(rawCoeffLo1, 0x00), 1);
-        params[k][0][1] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawCoeffLo0, 0x55)),
-                                                  _mm_shuffle_epi32(rawCoeffLo1, 0x55), 1);
-        params[k][0][2] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawCoeffLo0, 0xaa)),
-                                                  _mm_shuffle_epi32(rawCoeffLo1, 0xaa), 1);
-        params[k][0][3] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawCoeffLo0, 0xff)),
-                                                  _mm_shuffle_epi32(rawCoeffLo1, 0xff), 1);
-        params[k][0][4] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawCoeffHi0, 0x00)),
-                                                  _mm_shuffle_epi32(rawCoeffHi1, 0x00), 1);
-        params[k][0][5] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawCoeffHi0, 0x55)),
-                                                  _mm_shuffle_epi32(rawCoeffHi1, 0x55), 1);
-
-        params[k][1][0] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawClipLo0, 0x00)),
-                                                  _mm_shuffle_epi32(rawClipLo1, 0x00), 1);
-        params[k][1][1] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawClipLo0, 0x55)),
-                                                  _mm_shuffle_epi32(rawClipLo1, 0x55), 1);
-        params[k][1][2] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawClipLo0, 0xaa)),
-                                                  _mm_shuffle_epi32(rawClipLo1, 0xaa), 1);
-        params[k][1][3] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawClipLo0, 0xff)),
-                                                  _mm_shuffle_epi32(rawClipLo1, 0xff), 1);
-        params[k][1][4] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawClipHi0, 0x00)),
-                                                  _mm_shuffle_epi32(rawClipHi1, 0x00), 1);
-        params[k][1][5] = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_shuffle_epi32(rawClipHi0, 0x55)),
-                                                  _mm_shuffle_epi32(rawClipHi1, 0x55), 1);
+        params[k][1][0] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawClipLo0,  0x00) ), _mm_shuffle_epi32(rawClipLo1,  0x00), 1 );
+        params[k][1][1] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawClipLo0,  0x55) ), _mm_shuffle_epi32(rawClipLo1,  0x55), 1 );
+        params[k][1][2] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawClipLo0,  0xaa) ), _mm_shuffle_epi32(rawClipLo1,  0xaa), 1 );
+        params[k][1][3] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawClipLo0,  0xff) ), _mm_shuffle_epi32(rawClipLo1,  0xff), 1 );
+        params[k][1][4] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawClipHi0,  0x00) ), _mm_shuffle_epi32(rawClipHi1,  0x00), 1 );
+        params[k][1][5] = _mm256_inserti128_si256( _mm256_castsi128_si256( _mm_shuffle_epi32(rawClipHi0,  0x55) ), _mm_shuffle_epi32(rawClipHi1,  0x55), 1 );
       }
 
       {
         const Pel *pImg0 = src + j;
-
-        _mm_prefetch((const char *)&pImg0[-3 * srcStride - 0 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[-2 * srcStride - 1 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[-1 * srcStride - 2 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[0 * srcStride - 3 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[1 * srcStride - 3 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[2 * srcStride - 3 + 0], _MM_HINT_T0);
-        _mm_prefetch((const char *)&pImg0[3 * srcStride - 3 + 0], _MM_HINT_T0);
+        
+        _mm_prefetch( ( const char * ) &pImg0[-3 * srcStride - 0 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[-2 * srcStride - 1 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[-1 * srcStride - 2 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[ 0 * srcStride - 3 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[ 1 * srcStride - 3 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[ 2 * srcStride - 3 +  0], _MM_HINT_T0 );
+        _mm_prefetch( ( const char * ) &pImg0[ 3 * srcStride - 3 +  0], _MM_HINT_T0 );
       }
 
-      for (size_t ii = 0; ii < STEP_Y; ii++) {
+      for (size_t ii = 0; ii < STEP_Y; ii++)
+      {
         const Pel *pImg0, *pImg1, *pImg2, *pImg3, *pImg4, *pImg5, *pImg6;
 
         pImg0 = src + j + ii * srcStride;
@@ -1202,41 +1178,42 @@ void simdFilter7x7Blk<AVX2>(const AlfClassifier *classifier, const PelUnitBuf &r
         pImg4 = pImg2 - srcStride;
         pImg5 = pImg3 + srcStride;
         pImg6 = pImg4 - srcStride;
+        
+        _mm_prefetch( ( const char * ) &pImg0[ 4 * srcStride - 3 +  0], _MM_HINT_T0 );
 
-        _mm_prefetch((const char *)&pImg0[4 * srcStride - 3 + 0], _MM_HINT_T0);
+        const int yVb = ( blk.y + i + ii ) & ( vbCTUHeight - 1 );
 
-        const int yVb = (blk.y + i + ii) & (vbCTUHeight - 1);
-
-        if (yVb < vbPos && (yVb >= vbPos - 4))  // above
+        if( yVb < vbPos && ( yVb >= vbPos - 4 ) )   // above
         {
-          pImg1 = (yVb == vbPos - 1) ? pImg0 : pImg1;
-          pImg3 = (yVb >= vbPos - 2) ? pImg1 : pImg3;
-          pImg5 = (yVb >= vbPos - 3) ? pImg3 : pImg5;
+          pImg1 = ( yVb == vbPos - 1 ) ? pImg0 : pImg1;
+          pImg3 = ( yVb >= vbPos - 2 ) ? pImg1 : pImg3;
+          pImg5 = ( yVb >= vbPos - 3 ) ? pImg3 : pImg5;
 
-          pImg2 = (yVb == vbPos - 1) ? pImg0 : pImg2;
-          pImg4 = (yVb >= vbPos - 2) ? pImg2 : pImg4;
-          pImg6 = (yVb >= vbPos - 3) ? pImg4 : pImg6;
-        } else if (yVb >= vbPos && (yVb <= vbPos + 3))  // bottom
+          pImg2 = ( yVb == vbPos - 1 ) ? pImg0 : pImg2;
+          pImg4 = ( yVb >= vbPos - 2 ) ? pImg2 : pImg4;
+          pImg6 = ( yVb >= vbPos - 3 ) ? pImg4 : pImg6;
+        }
+        else if( yVb >= vbPos && ( yVb <= vbPos + 3 ) )   // bottom
         {
-          pImg2 = (yVb == vbPos) ? pImg0 : pImg2;
-          pImg4 = (yVb <= vbPos + 1) ? pImg2 : pImg4;
-          pImg6 = (yVb <= vbPos + 2) ? pImg4 : pImg6;
+          pImg2 = ( yVb == vbPos     ) ? pImg0 : pImg2;
+          pImg4 = ( yVb <= vbPos + 1 ) ? pImg2 : pImg4;
+          pImg6 = ( yVb <= vbPos + 2 ) ? pImg4 : pImg6;
 
-          pImg1 = (yVb == vbPos) ? pImg0 : pImg1;
-          pImg3 = (yVb <= vbPos + 1) ? pImg1 : pImg3;
-          pImg5 = (yVb <= vbPos + 2) ? pImg3 : pImg5;
+          pImg1 = ( yVb == vbPos     ) ? pImg0 : pImg1;
+          pImg3 = ( yVb <= vbPos + 1 ) ? pImg1 : pImg3;
+          pImg5 = ( yVb <= vbPos + 2 ) ? pImg3 : pImg5;
         }
 
-        __m256i cur = _mm256_loadu_si256((const __m256i *)pImg0);
-
-        __m256i accumA = _mm256_set1_epi32(ROUND);
-        __m256i accumB = _mm256_set1_epi32(ROUND);
+        __m256i cur = _mm256_loadu_si256((const __m256i *) pImg0);
+        
+        __m256i accumA = _mm256_set1_epi32( ROUND );
+        __m256i accumB = _mm256_set1_epi32( ROUND );
 
         auto process2coeffs = [&](const int i, const Pel *ptr0, const Pel *ptr1, const Pel *ptr2, const Pel *ptr3) {
-          const __m256i val00 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr0), cur);
-          const __m256i val10 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr2), cur);
-          const __m256i val01 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr1), cur);
-          const __m256i val11 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *)ptr3), cur);
+          const __m256i val00 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr0), cur);
+          const __m256i val10 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr2), cur);
+          const __m256i val01 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr1), cur);
+          const __m256i val11 = _mm256_sub_epi16(_mm256_loadu_si256((const __m256i *) ptr3), cur);
 
           __m256i val01A = _mm256_unpacklo_epi16(val00, val10);
           __m256i val01B = _mm256_unpackhi_epi16(val00, val10);
@@ -1246,27 +1223,27 @@ void simdFilter7x7Blk<AVX2>(const AlfClassifier *classifier, const PelUnitBuf &r
           __m256i limit01A = params[0][1][i];
           __m256i limit01B = params[1][1][i];
 
-          val01A = _mm256_min_epi16(val01A, limit01A);
-          val01B = _mm256_min_epi16(val01B, limit01B);
-          val01C = _mm256_min_epi16(val01C, limit01A);
-          val01D = _mm256_min_epi16(val01D, limit01B);
+          val01A = _mm256_min_epi16( val01A, limit01A );
+          val01B = _mm256_min_epi16( val01B, limit01B );
+          val01C = _mm256_min_epi16( val01C, limit01A );
+          val01D = _mm256_min_epi16( val01D, limit01B );
 
-          limit01A = _mm256_sub_epi16(_mm256_setzero_si256(), limit01A);
-          limit01B = _mm256_sub_epi16(_mm256_setzero_si256(), limit01B);
+          limit01A = _mm256_sub_epi16( _mm256_setzero_si256(), limit01A );
+          limit01B = _mm256_sub_epi16( _mm256_setzero_si256(), limit01B );
 
-          val01A = _mm256_max_epi16(val01A, limit01A);
-          val01B = _mm256_max_epi16(val01B, limit01B);
-          val01C = _mm256_max_epi16(val01C, limit01A);
-          val01D = _mm256_max_epi16(val01D, limit01B);
+          val01A = _mm256_max_epi16( val01A, limit01A );
+          val01B = _mm256_max_epi16( val01B, limit01B );
+          val01C = _mm256_max_epi16( val01C, limit01A );
+          val01D = _mm256_max_epi16( val01D, limit01B );
 
-          val01A = _mm256_add_epi16(val01A, val01C);
-          val01B = _mm256_add_epi16(val01B, val01D);
+          val01A = _mm256_add_epi16( val01A, val01C );
+          val01B = _mm256_add_epi16( val01B, val01D );
 
           const __m256i coeff01A = params[0][0][i];
           const __m256i coeff01B = params[1][0][i];
 
-          accumA = _mm256_add_epi32(accumA, _mm256_madd_epi16(val01A, coeff01A));
-          accumB = _mm256_add_epi32(accumB, _mm256_madd_epi16(val01B, coeff01B));
+          accumA = _mm256_add_epi32( accumA, _mm256_madd_epi16( val01A, coeff01A ) );
+          accumB = _mm256_add_epi32( accumB, _mm256_madd_epi16( val01B, coeff01B ) );
         };
 
         process2coeffs(0, pImg5 + 0, pImg6 + 0, pImg3 + 1, pImg4 - 1);
@@ -1278,11 +1255,14 @@ void simdFilter7x7Blk<AVX2>(const AlfClassifier *classifier, const PelUnitBuf &r
 
         bool isNearVBabove = yVb < vbPos && (yVb >= vbPos - 1);
         bool isNearVBbelow = yVb >= vbPos && (yVb <= vbPos);
-        if (!(isNearVBabove || isNearVBbelow)) {
+        if (!(isNearVBabove || isNearVBbelow))
+        {
           accumA = _mm256_srai_epi32(accumA, SHIFT);
           accumB = _mm256_srai_epi32(accumB, SHIFT);
-        } else {
-          const __m256i mmOffset1 = _mm256_set1_epi32((1 << ((SHIFT + 3) - 1)) - ROUND);
+        }
+        else
+        {
+          const __m256i mmOffset1 = _mm256_set1_epi32( ( 1 << ( ( SHIFT + 3 ) - 1 ) ) - ROUND );
           accumA = _mm256_srai_epi32(_mm256_add_epi32(accumA, mmOffset1), SHIFT + 3);
           accumB = _mm256_srai_epi32(_mm256_add_epi32(accumB, mmOffset1), SHIFT + 3);
         }
@@ -1290,7 +1270,7 @@ void simdFilter7x7Blk<AVX2>(const AlfClassifier *classifier, const PelUnitBuf &r
         accumA = _mm256_add_epi16(accumA, cur);
         accumA = _mm256_min_epi16(mmMax, _mm256_max_epi16(accumA, mmMin));
 
-        _mm256_storeu_si256((__m256i *)(dst + ii * dstStride + j), accumA);
+        _mm256_storeu_si256((__m256i *) (dst + ii * dstStride + j), accumA);
       }
     }
 
@@ -1452,8 +1432,8 @@ void simdFilterBlkCcAlf(const PelBuf &dstBuf, const CPelUnitBuf &recSrc, const A
     }
   } else {
     // TODO: implement for 444 subsampling
-    AdaptiveLoopFilter::filterBlkCcAlf<CC_ALF>(dstBuf, recSrc, blkDst, blkSrc, compId, filterCoeff, clpRngs, cs,
-                                               vbCTUHeight, vbPos);
+    AdaptiveLoopFilter::filterBlkCcAlf<Pel>(dstBuf, recSrc, blkDst, blkSrc, compId, filterCoeff, clpRngs, cs,
+                                            vbCTUHeight, vbPos);
   }
 }
 
@@ -1596,21 +1576,347 @@ void simdFilterBlkCcAlf<AVX2>(const PelBuf &dstBuf, const CPelUnitBuf &recSrc, c
     }
   } else {
     // TODO: implement for 444 subsampling
-    AdaptiveLoopFilter::filterBlkCcAlf<CC_ALF>(dstBuf, recSrc, blkDst, blkSrc, compId, filterCoeff, clpRngs, cs,
-                                               vbCTUHeight, vbPos);
+    AdaptiveLoopFilter::filterBlkCcAlf<Pel>(dstBuf, recSrc, blkDst, blkSrc, compId, filterCoeff, clpRngs, cs,
+                                            vbCTUHeight, vbPos);
   }
 }
 
 #  endif
 
 template <X86_VEXT vext>
-void AdaptiveLoopFilter::_initAdaptiveLoopFilterX86() {
+void simdFilterBlkCcAlfBoth(const PelBuf &dstBufCb, const PelBuf &dstBufCr, const CPelUnitBuf &recSrcY,
+                            const Area &blkDst, const Area &blkSrc, const int16_t *filterCoeffCb,
+                            const int16_t *filterCoeffCr, const ClpRngs &clpRngs, CodingStructure &cs, int vbCTUHeight,
+                            int vbPos) {
+  CHECK(1 << getLog2(vbCTUHeight) != vbCTUHeight, "Not a power of 2");
+
+  static constexpr int scaleBits = 7;  // 8-bits
+  static constexpr int clsSizeY = 4;
+  static constexpr int clsSizeX = 4;
+
+  const SPS *sps = cs.sps.get();
+  ChromaFormat nChromaFormat = sps->getChromaFormatIdc();
+  const int startHeight = blkDst.y;
+  const int endHeight = blkDst.y + blkDst.height;
+  const int startWidth = blkDst.x;
+  const int endWidth = blkDst.x + blkDst.width;
+  const int scaleX = getComponentScaleX(COMPONENT_Cb, nChromaFormat);
+  const int scaleY = getComponentScaleY(COMPONENT_Cb, nChromaFormat);
+
+  CHECKD(startHeight % clsSizeY, "Wrong startHeight in filtering");
+  CHECKD(startWidth % clsSizeX, "Wrong startWidth in filtering");
+  CHECKD((endHeight - startHeight) % clsSizeY, "Wrong endHeight in filtering");
+  CHECKD((endWidth - startWidth) % clsSizeX, "Wrong endWidth in filtering");
+
+  const CPelBuf &srcBuf = recSrcY.get(COMPONENT_Y);
+  const ptrdiff_t lumaStride = srcBuf.stride;
+  const Pel *lumaPtr = srcBuf.buf + blkSrc.y * lumaStride + blkSrc.x;
+
+  const ptrdiff_t cbStride = dstBufCb.stride;
+  const ptrdiff_t crStride = dstBufCr.stride;
+  Pel *cbPtr = dstBufCb.buf + blkDst.y * cbStride + blkDst.x;
+  Pel *crPtr = dstBufCr.buf + blkDst.y * crStride + blkDst.x;
+
+  if (getChannelTypeScaleX(CH_C, nChromaFormat) == 1) {
+    __m128i xfilterCoeffCb[4];
+    xfilterCoeffCb[0] = _mm_set1_epi32((filterCoeffCb[1] & 0xffff) | (filterCoeffCb[2] << 16));
+    xfilterCoeffCb[1] = _mm_set1_epi32((filterCoeffCb[0] & 0xffff) | (filterCoeffCb[3] << 16));
+    xfilterCoeffCb[2] = _mm_set1_epi32((filterCoeffCb[4] & 0xffff) | (filterCoeffCb[5] << 16));
+    xfilterCoeffCb[3] = _mm_set1_epi32((filterCoeffCb[6] & 0xffff));
+    __m128i xfilterCoeffCr[4];
+    xfilterCoeffCr[0] = _mm_set1_epi32((filterCoeffCr[1] & 0xffff) | (filterCoeffCr[2] << 16));
+    xfilterCoeffCr[1] = _mm_set1_epi32((filterCoeffCr[0] & 0xffff) | (filterCoeffCr[3] << 16));
+    xfilterCoeffCr[2] = _mm_set1_epi32((filterCoeffCr[4] & 0xffff) | (filterCoeffCr[5] << 16));
+    xfilterCoeffCr[3] = _mm_set1_epi32((filterCoeffCr[6] & 0xffff));
+
+    for (int i = 0; i < endHeight - startHeight; i += clsSizeY) {
+      for (int j = 0; j < endWidth - startWidth; j += clsSizeX) {
+        for (int ii = 0; ii < clsSizeY; ii++) {
+          int row = ii;
+          int col = j;
+          Pel *srcSelfCb = cbPtr + col + row * cbStride;
+          Pel *srcSelfCr = crPtr + col + row * crStride;
+
+          ptrdiff_t offset1 = lumaStride;
+          ptrdiff_t offset2 = -lumaStride;
+          ptrdiff_t offset3 = 2 * lumaStride;
+          row <<= scaleY;
+          col <<= scaleX;
+          const Pel *srcCross = lumaPtr + col + row * lumaStride;
+
+          int pos = ((startHeight + i + ii) << scaleY) & (vbCTUHeight - 1);
+          if (pos == (vbPos - 2) || pos == (vbPos + 1)) {
+            offset3 = offset1;
+          } else if (pos == (vbPos - 1) || pos == vbPos) {
+            offset1 = 0;
+            offset2 = 0;
+            offset3 = 0;
+          }
+
+          const int offset0 = 0;
+
+          __m128i xin0 = _mm_loadu_si128((const __m128i *)&srcCross[offset0 - 1]);
+          __m128i xsrcCross = _mm_loadu_si128((const __m128i *)&srcCross[offset0]);
+          __m128i xsumCb = _mm_set1_epi32(1 << (scaleBits - 1));
+          __m128i xsumCr = xsumCb;
+
+          xin0 = _mm_blend_epi16(xin0, xsrcCross, 0 + 2 + 8 + 32 + 128);
+
+          xsrcCross = _mm_shufflelo_epi16(xsrcCross, (0 << 0) + (0 << 2) + (2 << 4) + (2 << 6));
+          xsrcCross = _mm_shufflehi_epi16(xsrcCross, (0 << 0) + (0 << 2) + (2 << 4) + (2 << 6));
+
+          xin0 = _mm_sub_epi16(xin0, xsrcCross);
+          __m128i xinCb = _mm_madd_epi16(xin0, xfilterCoeffCb[0]);
+          __m128i xinCr = _mm_madd_epi16(xin0, xfilterCoeffCr[0]);
+
+          xsumCb = _mm_add_epi32(xsumCb, xinCb);
+          xsumCr = _mm_add_epi32(xsumCr, xinCr);
+
+          xin0 = _mm_loadu_si128((const __m128i *)&srcCross[offset2]);
+          __m128i xin1 = _mm_loadu_si128((const __m128i *)&srcCross[offset1 - 2]);
+          xin0 = _mm_blend_epi16(xin0, xin1, 0 + 2 + 8 + 32 + 128);
+
+          xin0 = _mm_sub_epi16(xin0, xsrcCross);
+          xinCb = _mm_madd_epi16(xin0, xfilterCoeffCb[1]);
+          xinCr = _mm_madd_epi16(xin0, xfilterCoeffCr[1]);
+
+          xsumCb = _mm_add_epi32(xsumCb, xinCb);
+          xsumCr = _mm_add_epi32(xsumCr, xinCr);
+
+          xin0 = _mm_loadu_si128((const __m128i *)&srcCross[offset1]);
+          xin0 = _mm_sub_epi16(xin0, xsrcCross);
+          xinCb = _mm_madd_epi16(xin0, xfilterCoeffCb[2]);
+          xinCr = _mm_madd_epi16(xin0, xfilterCoeffCr[2]);
+
+          xsumCb = _mm_add_epi32(xsumCb, xinCb);
+          xsumCr = _mm_add_epi32(xsumCr, xinCr);
+
+          xin0 = _mm_loadu_si128((const __m128i *)&srcCross[offset3]);
+          xin0 = _mm_sub_epi16(xin0, xsrcCross);
+          xinCb = _mm_madd_epi16(xin0, xfilterCoeffCb[3]);
+          xinCr = _mm_madd_epi16(xin0, xfilterCoeffCr[3]);
+
+          xsumCb = _mm_add_epi32(xsumCb, xinCb);
+          xsumCr = _mm_add_epi32(xsumCr, xinCr);
+          xsumCb = _mm_srai_epi32(xsumCb, scaleBits);
+          xsumCr = _mm_srai_epi32(xsumCr, scaleBits);
+
+          __m128i xsum = _mm_packs_epi32(xsumCb, xsumCr);
+          xin0 = _mm_set1_epi16(1 << clpRngs.bd >> 1);
+          xsum = _mm_add_epi16(xsum, xin0);
+
+          xsum = _mm_max_epi16(_mm_setzero_si128(), xsum);
+          xsum = _mm_min_epi16(_mm_set1_epi16(clpRngs.max()), xsum);
+          xsum = _mm_sub_epi16(xsum, xin0);
+
+          xsumCb = xsum;
+          xsumCr = _mm_srli_si128(xsum, 8);
+
+          xin0 = _mm_loadl_epi64((const __m128i *)&srcSelfCb[0]);
+          xin1 = _mm_loadl_epi64((const __m128i *)&srcSelfCr[0]);
+          xin0 = _mm_add_epi16(xsumCb, xin0);
+          xin1 = _mm_add_epi16(xsumCr, xin1);
+
+          xin0 = _mm_max_epi16(_mm_setzero_si128(), xin0);
+          xin1 = _mm_max_epi16(_mm_setzero_si128(), xin1);
+          xin0 = _mm_min_epi16(_mm_set1_epi16(clpRngs.max()), xin0);
+          xin1 = _mm_min_epi16(_mm_set1_epi16(clpRngs.max()), xin1);
+
+          _mm_storel_epi64(reinterpret_cast<__m128i *>(&srcSelfCb[0]), xin0);
+          _mm_storel_epi64(reinterpret_cast<__m128i *>(&srcSelfCr[0]), xin1);
+        }
+      }
+
+      cbPtr += cbStride * clsSizeY;
+      crPtr += crStride * clsSizeY;
+      lumaPtr += lumaStride * clsSizeY << getComponentScaleY(COMPONENT_Cb, nChromaFormat);
+    }
+  } else {
+    // TODO: implement for 444 subsampling
+    AdaptiveLoopFilter::filterBlkCcAlfBoth<Pel>(dstBufCb, dstBufCr, recSrcY, blkDst, blkSrc, filterCoeffCb,
+                                                filterCoeffCr, clpRngs, cs, vbCTUHeight, vbPos);
+  }
+}
+
+#  if USE_AVX2
+template <>
+void simdFilterBlkCcAlfBoth<AVX2>(const PelBuf &dstBufCb, const PelBuf &dstBufCr, const CPelUnitBuf &recSrcY,
+                                  const Area &blkDst, const Area &blkSrc, const int16_t *filterCoeffCb,
+                                  const int16_t *filterCoeffCr, const ClpRngs &clpRngs, CodingStructure &cs,
+                                  int vbCTUHeight, int vbPos) {
+  if (blkDst.width & 7) {
+    simdFilterBlkCcAlfBoth<SSE42>(dstBufCb, dstBufCr, recSrcY, blkDst, blkSrc, filterCoeffCb, filterCoeffCr, clpRngs,
+                                  cs, vbCTUHeight, vbPos);
+    return;
+  }
+
+  CHECK(1 << getLog2(vbCTUHeight) != vbCTUHeight, "Not a power of 2");
+
+  static constexpr int scaleBits = 7;  // 8-bits
+  static constexpr int clsSizeY = 4;
+  static constexpr int clsSizeX = 4;
+
+  const SPS *sps = cs.sps.get();
+  ChromaFormat nChromaFormat = sps->getChromaFormatIdc();
+  const int startHeight = blkDst.y;
+  const int endHeight = blkDst.y + blkDst.height;
+  const int startWidth = blkDst.x;
+  const int endWidth = blkDst.x + blkDst.width;
+  //  const int scaleX = getComponentScaleX(COMPONENT_Cb, nChromaFormat);
+  const int scaleY = getComponentScaleY(COMPONENT_Cb, nChromaFormat);
+
+  CHECK(startHeight % clsSizeY, "Wrong startHeight in filtering");
+  CHECK(startWidth % clsSizeX, "Wrong startWidth in filtering");
+  CHECK((endHeight - startHeight) % clsSizeY, "Wrong endHeight in filtering");
+  CHECK((endWidth - startWidth) % clsSizeX, "Wrong endWidth in filtering");
+
+  const CPelBuf &srcBuf = recSrcY.get(COMPONENT_Y);
+  const ptrdiff_t lumaStride = srcBuf.stride;
+  const Pel *lumaPtr = srcBuf.buf + blkSrc.y * lumaStride + blkSrc.x;
+
+  const ptrdiff_t cbStride = dstBufCb.stride;
+  const ptrdiff_t crStride = dstBufCr.stride;
+  Pel *cbPtr = dstBufCb.buf + blkDst.y * cbStride + blkDst.x;
+  Pel *crPtr = dstBufCr.buf + blkDst.y * crStride + blkDst.x;
+
+  if (getChannelTypeScaleX(CH_C, nChromaFormat) == 1) {
+    static constexpr int scaleX = 1;
+
+    __m256i vfilterCoeffCb[4];
+    vfilterCoeffCb[0] = _mm256_set1_epi32((filterCoeffCb[1] & 0xffff) | (filterCoeffCb[2] << 16));
+    vfilterCoeffCb[1] = _mm256_set1_epi32((filterCoeffCb[0] & 0xffff) | (filterCoeffCb[3] << 16));
+    vfilterCoeffCb[2] = _mm256_set1_epi32((filterCoeffCb[4] & 0xffff) | (filterCoeffCb[5] << 16));
+    vfilterCoeffCb[3] = _mm256_set1_epi32((filterCoeffCb[6] & 0xffff));
+    __m256i vfilterCoeffCr[4];
+    vfilterCoeffCr[0] = _mm256_set1_epi32((filterCoeffCr[1] & 0xffff) | (filterCoeffCr[2] << 16));
+    vfilterCoeffCr[1] = _mm256_set1_epi32((filterCoeffCr[0] & 0xffff) | (filterCoeffCr[3] << 16));
+    vfilterCoeffCr[2] = _mm256_set1_epi32((filterCoeffCr[4] & 0xffff) | (filterCoeffCr[5] << 16));
+    vfilterCoeffCr[3] = _mm256_set1_epi32((filterCoeffCr[6] & 0xffff));
+
+    __m128i xmax16 = _mm_set1_epi16(clpRngs.max());
+    __m256i vmax16 = _mm256_set1_epi16(clpRngs.max());
+    __m256i vin0_0 = _mm256_set1_epi16(1 << clpRngs.bd >> 1);
+
+    for (int i = 0; i < endHeight - startHeight; i += clsSizeY) {
+      for (int j = 0; j < endWidth - startWidth; j += 8) {
+        for (int ii = 0; ii < clsSizeY; ii++) {
+          int row = ii;
+          int col = j;
+          Pel *srcSelfCb = cbPtr + col + row * cbStride;
+          Pel *srcSelfCr = crPtr + col + row * crStride;
+
+          ptrdiff_t offset1 = lumaStride;
+          ptrdiff_t offset2 = -lumaStride;
+          ptrdiff_t offset3 = 2 * lumaStride;
+          row <<= scaleY;
+          col <<= scaleX;
+          const Pel *srcCross = lumaPtr + col + row * lumaStride;
+
+          int pos = ((startHeight + i + ii) << scaleY) & (vbCTUHeight - 1);
+          if (pos == (vbPos - 2) || pos == (vbPos + 1)) {
+            offset3 = offset1;
+          } else if (pos == (vbPos - 1) || pos == vbPos) {
+            offset1 = 0;
+            offset2 = 0;
+            offset3 = 0;
+          }
+
+          const int offset0 = 0;
+
+          __m256i vin0 = _mm256_loadu_si256((const __m256i *)&srcCross[offset0 - 1]);
+          __m256i vsrcCross = _mm256_loadu_si256((const __m256i *)&srcCross[offset0]);
+          __m256i vsumCb = _mm256_set1_epi32(1 << (scaleBits - 1));
+          __m256i vsumCr = vsumCb;
+
+          vin0 = _mm256_blend_epi16(vin0, vsrcCross, 0 + 2 + 8 + 32 + 128);
+
+          vsrcCross = _mm256_shufflelo_epi16(vsrcCross, (0 << 0) + (0 << 2) + (2 << 4) + (2 << 6));
+          vsrcCross = _mm256_shufflehi_epi16(vsrcCross, (0 << 0) + (0 << 2) + (2 << 4) + (2 << 6));
+
+          vin0 = _mm256_sub_epi16(vin0, vsrcCross);
+          __m256i vinCb = _mm256_madd_epi16(vin0, vfilterCoeffCb[0]);
+          __m256i vinCr = _mm256_madd_epi16(vin0, vfilterCoeffCr[0]);
+
+          vsumCb = _mm256_add_epi32(vsumCb, vinCb);
+          vsumCr = _mm256_add_epi32(vsumCr, vinCr);
+
+          vin0 = _mm256_loadu_si256((const __m256i *)&srcCross[offset2]);
+          __m256i vin1 = _mm256_loadu_si256((const __m256i *)&srcCross[offset1 - 2]);
+          vin0 = _mm256_blend_epi16(vin0, vin1, 2 + 8 + 32 + 128);
+
+          vin0 = _mm256_sub_epi16(vin0, vsrcCross);
+          vinCb = _mm256_madd_epi16(vin0, vfilterCoeffCb[1]);
+          vinCr = _mm256_madd_epi16(vin0, vfilterCoeffCr[1]);
+
+          vsumCb = _mm256_add_epi32(vsumCb, vinCb);
+          vsumCr = _mm256_add_epi32(vsumCr, vinCr);
+
+          vin0 = _mm256_loadu_si256((const __m256i *)&srcCross[offset1]);
+          vin0 = _mm256_sub_epi16(vin0, vsrcCross);
+          vinCb = _mm256_madd_epi16(vin0, vfilterCoeffCb[2]);
+          vinCr = _mm256_madd_epi16(vin0, vfilterCoeffCr[2]);
+
+          vsumCb = _mm256_add_epi32(vsumCb, vinCb);
+          vsumCr = _mm256_add_epi32(vsumCr, vinCr);
+
+          vin0 = _mm256_loadu_si256((const __m256i *)&srcCross[offset3]);
+          vin0 = _mm256_sub_epi16(vin0, vsrcCross);
+          vinCb = _mm256_madd_epi16(vin0, vfilterCoeffCb[3]);
+          vinCr = _mm256_madd_epi16(vin0, vfilterCoeffCr[3]);
+
+          vsumCb = _mm256_add_epi32(vsumCb, vinCb);
+          vsumCr = _mm256_add_epi32(vsumCr, vinCr);
+          vsumCb = _mm256_srai_epi32(vsumCb, scaleBits);
+          vsumCr = _mm256_srai_epi32(vsumCr, scaleBits);
+
+          __m256i vsum = _mm256_packs_epi32(vsumCb, vsumCr);
+          vsum = _mm256_permute4x64_epi64(vsum, (0 << 0) + (2 << 2) + (1 << 4) + (3 << 6));
+
+          vin0 = vin0_0;
+          vsum = _mm256_add_epi16(vsum, vin0);
+
+          vsum = _mm256_max_epi16(_mm256_setzero_si256(), vsum);
+          vsum = _mm256_min_epi16(vmax16, vsum);
+          vsum = _mm256_sub_epi16(vsum, vin0);
+
+          __m128i xin0 = _mm_loadu_si128((const __m128i *)&srcSelfCb[0]);
+          __m128i xin1 = _mm_loadu_si128((const __m128i *)&srcSelfCr[0]);
+          __m128i vaddCb = _mm256_castsi256_si128(vsum);
+          __m128i vaddCr = _mm256_extracti128_si256(vsum, 1);
+          xin0 = _mm_add_epi16(xin0, vaddCb);
+          xin1 = _mm_add_epi16(xin1, vaddCr);
+
+          xin0 = _mm_max_epi16(_mm_setzero_si128(), xin0);
+          xin1 = _mm_max_epi16(_mm_setzero_si128(), xin1);
+          xin0 = _mm_min_epi16(xmax16, xin0);
+          xin1 = _mm_min_epi16(xmax16, xin1);
+
+          _mm_storeu_si128(reinterpret_cast<__m128i *>(&srcSelfCb[0]), xin0);
+          _mm_storeu_si128(reinterpret_cast<__m128i *>(&srcSelfCr[0]), xin1);
+        }
+      }
+
+      cbPtr += cbStride * clsSizeY;
+      crPtr += crStride * clsSizeY;
+      lumaPtr += lumaStride * clsSizeY << getComponentScaleY(COMPONENT_Cb, nChromaFormat);
+    }
+  } else {
+    // TODO: implement for 444 subsampling
+    AdaptiveLoopFilter::filterBlkCcAlfBoth<Pel>(dstBufCb, dstBufCr, recSrcY, blkDst, blkSrc, filterCoeffCb,
+                                                filterCoeffCr, clpRngs, cs, vbCTUHeight, vbPos);
+  }
+}
+#  endif
+
+template <X86_VEXT vext>
+void AdaptiveLoopFilter::_initAdaptiveLoopFilterX86(int bitDepth) {
   m_deriveClassificationBlk = simdDeriveClassificationBlk<vext>;
   m_filter5x5Blk = simdFilter5x5Blk<vext>;
   m_filter7x7Blk = simdFilter7x7Blk<vext>;
   m_filterCcAlf = simdFilterBlkCcAlf<vext>;
+  m_filterCcAlfBoth = simdFilterBlkCcAlfBoth<vext>;
 }
 
-template void AdaptiveLoopFilter::_initAdaptiveLoopFilterX86<SIMDX86>();
+template void AdaptiveLoopFilter::_initAdaptiveLoopFilterX86<SIMDX86>(int bitDepth);
 #endif  //#ifdef TARGET_SIMD_X86
 //! \}

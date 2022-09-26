@@ -297,8 +297,9 @@ typedef struct VVDEC_DECL Frame {
 typedef struct VVDEC_DECL VVDecParameter {
   VVDecParameter()  ///< default constructor, sets member attributes to default values
   {}
-  int m_iThreads = -1;                ///< thread count        ( default: -1 )
-  int m_iParseThreads = -1;           ///< parser thread count ( default: -1 )
+  int m_iThreads = -1;       ///< thread count        ( default: -1 )
+  int m_iParseThreads = -1;  ///< parser thread count ( default: -1 )
+  int m_iFrameThreads = -1;
   LogLevel m_eLogLevel = LL_WARNING;  ///< verbosity level
   bool m_bDecodedPictureHashSEIEnabled =
       false;  ///<  Control handling of decoded picture hash SEI messages, true: check hash in SEI messages if available

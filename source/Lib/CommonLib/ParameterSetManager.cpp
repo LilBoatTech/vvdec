@@ -45,6 +45,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 ------------------------------------------------------------------------------------------- */
 
 #include "ParameterSetManager.h"
+#include "Unit.h"
 
 void updateParameterSetChangedFlag(bool& bChanged, const std::vector<uint8_t>* pOldData,
                                    const std::vector<uint8_t>* pNewData) {
@@ -64,13 +65,12 @@ void updateParameterSetChangedFlag(bool& bChanged, const std::vector<uint8_t>* p
   bChanged = (*pNewData != *pOldData);
 }
 
-ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const Slice* pSlicePilot,
-                                                                           const PicHeader* picHeader) {
+ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const Slice* pSlicePilot, const PicHeader* picHeader) {
   PPS* pps = getPPS(picHeader->getPPSId());
-  CHECK(pps == 0, "No PPS present");
+  CHECK(pps == 0, "activate parameter sets: No PPS present");
 
   SPS* sps = getSPS(pps->getSPSId());
-  CHECK(sps == 0, "No SPS present");
+  CHECK(sps == 0, "activate parameter sets: No SPS present");
 
   if (!pps->pcv) {
     pps->pcv = std::make_unique<PreCalcValues>(*sps, *pps);
@@ -81,14 +81,9 @@ ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const
   sps->clearChangedFlag();
   pps->clearChangedFlag();
 
-  if (false == activatePPS(picHeader->getPPSId(), pSlicePilot->isIRAP())) {
-    THROW("Parameter set activation failed!");
+  if(false == activatePPS(picHeader->getPPSId(), pSlicePilot->isIRAP())) {
+    THROW( "Parameter set activation failed!" );
   }
-
-#if JVET_O1143_SUBPIC_BOUNDARY && !JVET_Q0044_SLICE_IDX_WITH_SUBPICS
-  PPS* nonconstPPS = getPPS(picHeader->getPPSId());
-  nonconstPPS->initSubPic(*sps);
-#endif
 
   m_alfAPSs.fill(nullptr);
   m_apsMap.clearActive();
@@ -100,17 +95,19 @@ ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const
     if (alfApsL) {
       alfApsL->clearChangedFlag();
       m_alfAPSs[apsId] = alfApsL;
-      if (false == activateAPS(apsId, ALF_APS)) {
-        THROW("APS activation failed!");
+
+      if(false == activateAPS(apsId, ALF_APS)){
+        THROW( "APS activation failed!" );
       }
 
-      CHECK(sps->getUseCCALF() == false &&
-                (alfApsL->getCcAlfAPSParam().newCcAlfFilter[0] || alfApsL->getCcAlfAPSParam().newCcAlfFilter[1]),
+      CHECK(sps->getUseCCALF() == false && (alfApsL->getCcAlfAPSParam().newCcAlfFilter[0] ||
+                                            alfApsL->getCcAlfAPSParam().newCcAlfFilter[1]),
             "When sps_ccalf_enabled_flag is 0, the values of alf_cc_cb_filter_signal_flag and "
             "alf_cc_cr_filter_signal_flag shall be equal to 0");
-      CHECK(
-          sps->getChromaFormatIdc() == CHROMA_400 && alfApsL->chromaPresentFlag,
+      CHECK(sps->getChromaFormatIdc() == CHROMA_400 && alfApsL->chromaPresentFlag,
           "When ChromaArrayType is equal to 0, the value of aps_chroma_present_flag of an ALF_APS shall be equal to 0");
+      CHECK(alfApsL->getTemporalId() > pSlicePilot->getTLayer(),
+            "TemporalId shall be less than or equal to the TemporalId of the coded slice NAL unit");
     }
   }
 
@@ -121,13 +118,15 @@ ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const
     if (alfApsC) {
       alfApsC->clearChangedFlag();
       m_alfAPSs[apsId] = alfApsC;
-      if (false == activateAPS(apsId, ALF_APS)) {
-        THROW("APS activation failed!");
+      if(false == activateAPS(apsId, ALF_APS)){
+        THROW( "APS activation failed!" );
       }
-      CHECK(sps->getUseCCALF() == false &&
-                (alfApsC->getCcAlfAPSParam().newCcAlfFilter[0] || alfApsC->getCcAlfAPSParam().newCcAlfFilter[1]),
+      CHECK(sps->getUseCCALF() == false && (alfApsC->getCcAlfAPSParam().newCcAlfFilter[0] ||
+                                            alfApsC->getCcAlfAPSParam().newCcAlfFilter[1]),
             "When sps_ccalf_enabled_flag is 0, the values of alf_cc_cb_filter_signal_flag and "
             "alf_cc_cr_filter_signal_flag shall be equal to 0");
+      CHECK(alfApsC->getTemporalId() > pSlicePilot->getTLayer(),
+            "TemporalId shall be less than or equal to the TemporalId of the coded slice NAL unit");
     }
   }
   if (pSlicePilot->getTileGroupCcAlfCbEnabledFlag()) {
@@ -137,9 +136,10 @@ ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const
       if (aps) {
         m_alfAPSs[apsId] = aps;
 
-        if (false == activateAPS(apsId, ALF_APS)) {
-          THROW("APS activation failed!");
+        if(false == activateAPS(apsId, ALF_APS)){
+          THROW( "APS activation failed!" );
         }
+        CHECK(aps->getTemporalId() > pSlicePilot->getTLayer(), "TemporalId shall be less than or equal to the TemporalId of the coded slice NAL unit");
       }
     }
   }
@@ -150,9 +150,10 @@ ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const
       APS* aps = getAPS(apsId, ALF_APS);
       if (aps) {
         m_alfAPSs[apsId] = aps;
-        if (false == activateAPS(apsId, ALF_APS)) {
-          THROW("APS activation failed!");
+        if(false == activateAPS(apsId, ALF_APS)){
+          THROW( "APS activation failed!" );
         }
+        CHECK(aps->getTemporalId() > pSlicePilot->getTLayer(), "TemporalId shall be less than or equal to the TemporalId of the coded slice NAL unit");
       }
     }
   }
@@ -160,44 +161,45 @@ ParameterSetManager::ActivePSs ParameterSetManager::xActivateParameterSets(const
   APS* lmcsAPS = nullptr;
   if (picHeader->getLmcsAPSId() != -1) {
     lmcsAPS = getAPS(picHeader->getLmcsAPSId(), LMCS_APS);
-    CHECK(lmcsAPS == 0, "No LMCS APS present");
+    CHECK(lmcsAPS == 0, "activate parameter sets: No LMCS APS present");
   }
 
   if (lmcsAPS) {
     lmcsAPS->clearChangedFlag();
-    if (false == activateAPS(picHeader->getLmcsAPSId(), LMCS_APS)) {
-      THROW("LMCS APS activation failed!");
+    if(false == activateAPS(picHeader->getLmcsAPSId(), LMCS_APS)){
+      THROW( "APS activation failed!" );
     }
-
-    CHECK(
-        sps->getChromaFormatIdc() == CHROMA_400 && lmcsAPS->chromaPresentFlag,
-        "When ChromaArrayType is equal to 0, the value of aps_chroma_present_flag of an LMCS_APS shall be equal to 0");
+    CHECK(sps->getChromaFormatIdc() == CHROMA_400 && lmcsAPS->chromaPresentFlag,
+          "When ChromaArrayType is equal to 0, the value of aps_chroma_present_flag of an LMCS_APS shall be equal to 0");
     CHECK(lmcsAPS->getReshaperAPSInfo().maxNbitsNeededDeltaCW - 1 < 0 ||
-              lmcsAPS->getReshaperAPSInfo().maxNbitsNeededDeltaCW - 1 > sps->getBitDepth(CHANNEL_TYPE_LUMA) - 2,
+          lmcsAPS->getReshaperAPSInfo().maxNbitsNeededDeltaCW - 1 > sps->getBitDepth(CHANNEL_TYPE_LUMA) - 2,
           "The value of lmcs_delta_cw_prec_minus1 of an LMCS_APS shall be in the range of 0 to BitDepth 2, inclusive");
+    CHECK(lmcsAPS->getTemporalId() > pSlicePilot->getTLayer(),
+          "TemporalId shall be less than or equal to the TemporalId of the coded slice NAL unit");
   }
 
   APS* scalingListAPS = nullptr;
   if (picHeader->getScalingListAPSId() != -1) {
     scalingListAPS = getAPS(picHeader->getScalingListAPSId(), SCALING_LIST_APS);
-    CHECK(scalingListAPS == 0, "No ScalingList APS present");
+    CHECK(scalingListAPS == 0, "activate parameter sets: No ScalingList APS present");
   }
 
   if (scalingListAPS) {
     scalingListAPS->clearChangedFlag();
 
-    if (false == activateAPS(picHeader->getScalingListAPSId(), SCALING_LIST_APS)) {
-      THROW("LMCS APS activation failed!");
+    if(false == activateAPS(picHeader->getScalingListAPSId(), SCALING_LIST_APS)){
+      THROW( "APS activation failed!" );
     }
-
     CHECK((sps->getChromaFormatIdc() == CHROMA_400 && scalingListAPS->chromaPresentFlag) ||
-              (sps->getChromaFormatIdc() != CHROMA_400 && !scalingListAPS->chromaPresentFlag),
-          "The value of aps_chroma_present_flag of the APS NAL unit having aps_params_type equal to SCALING_APS and "
-          "adaptation_parameter_set_id equal to ph_scaling_list_aps_id shall be equal to ChromaArrayType  = =  0 ? 0 : "
-          "1");
+          (sps->getChromaFormatIdc() != CHROMA_400 && !scalingListAPS->chromaPresentFlag),
+          "The value of aps_chroma_present_flag of the APS NAL unit having aps_params_type equal to "
+          "SCALING_APS and adaptation_parameter_set_id equal to ph_scaling_list_aps_id shall be equal to    "
+          "ChromaArrayType  = =  0 ? 0 : 1");
+    CHECK(scalingListAPS->getTemporalId() > pSlicePilot->getTLayer(),
+          "TemporalId shall be less than or equal to the TemporalId of the coded slice NAL unit");
   }
 
-  return {sps, pps, &m_alfAPSs, lmcsAPS, scalingListAPS};
+  return { sps, pps, &m_alfAPSs, lmcsAPS, scalingListAPS };
 }
 
 //! activate a PPS and depending on isIDR parameter also SPS
@@ -257,13 +259,15 @@ std::vector<PPS*> ParameterSetMap<PPS, MAX_NUM_PPS>::getPPSforSPSId(int spsId) {
   return ppssforsps;
 }
 
-bool ParameterSetManager::activateAPS(int apsId, int apsType) {
-  APS* aps = m_apsMap.getPS((apsId << NUM_APS_TYPE_LEN) + apsType);
-  if (aps) {
-    m_apsMap.setActive((apsId << NUM_APS_TYPE_LEN) + apsType);
+bool ParameterSetManager::activateAPS( int apsId, int apsType )
+{
+  APS* aps = m_apsMap.getPS( ( apsId << NUM_APS_TYPE_LEN ) + apsType );
+  if( aps ) {
+    m_apsMap.setActive( ( apsId << NUM_APS_TYPE_LEN ) + apsType );
     return true;
-  } else {
-    msg(WARNING, "Warning: tried to activate non-existing APS.");
+  }
+  else {
+    msg( WARNING, "Warning: tried to activate non-existing APS." );
   }
   return false;
 }

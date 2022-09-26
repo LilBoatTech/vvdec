@@ -293,66 +293,75 @@ const TFilterCoeff InterpolationFilter::m_bilinearFilterPrec4[LUMA_INTERPOLATION
 // Private member functions
 // ====================================================================================================================
 
-InterpolationFilter::InterpolationFilter() {
-  m_filterHor[0][0][0] = filter<8, false, false, false>;
-  m_filterHor[0][0][1] = filter<8, false, false, true>;
-  m_filterHor[0][1][0] = filter<8, false, true, false>;
-  m_filterHor[0][1][1] = filter<8, false, true, true>;
+InterpolationFilter::InterpolationFilter() {}
 
-  m_filterHor[1][0][0] = filter<4, false, false, false>;
-  m_filterHor[1][0][1] = filter<4, false, false, true>;
-  m_filterHor[1][1][0] = filter<4, false, true, false>;
-  m_filterHor[1][1][1] = filter<4, false, true, true>;
+void InterpolationFilter::initInterpolationFilter(int bitDepth) {
+#define INIT_INTERPOLATION_FUNC(type)                                                \
+  /* Unidirectional interpolation */                                                 \
+  /* When isFirst is true, the input is 10bit/8bit, otherwise the input is 16bit */  \
+  /* When isLast is true, the output is 10bit/8bit, otherwise the output is 16bit */ \
+  m_filterHor[0][1][0] = filter<8, false, true, false, type, Pel>;                   \
+  m_filterHor[0][1][1] = filter<8, false, true, true, type, type>;                   \
+  m_filterHor[1][1][0] = filter<4, false, true, false, type, Pel>;                   \
+  m_filterHor[1][1][1] = filter<4, false, true, true, type, type>;                   \
+  m_filterHor[2][1][0] = filter<2, false, true, false, type, Pel>;                   \
+  m_filterHor[2][1][1] = filter<2, false, true, true, type, type>;                   \
+  m_filterVer[0][0][0] = filter<8, true, false, false, Pel, Pel>;                    \
+  m_filterVer[0][0][1] = filter<8, true, false, true, Pel, type>;                    \
+  m_filterVer[0][1][0] = filter<8, true, true, false, type, Pel>;                    \
+  m_filterVer[0][1][1] = filter<8, true, true, true, type, type>;                    \
+  m_filterVer[1][0][0] = filter<4, true, false, false, Pel, Pel>;                    \
+  m_filterVer[1][0][1] = filter<4, true, false, true, Pel, type>;                    \
+  m_filterVer[1][1][0] = filter<4, true, true, false, type, Pel>;                    \
+  m_filterVer[1][1][1] = filter<4, true, true, true, type, type>;                    \
+  m_filterVer[2][0][0] = filter<2, true, false, false, Pel, Pel>;                    \
+  m_filterVer[2][0][1] = filter<2, true, false, true, Pel, type>;                    \
+  m_filterVer[2][1][0] = filter<2, true, true, false, type, Pel>;                    \
+  m_filterVer[2][1][1] = filter<2, true, true, true, type, type>;                    \
+  /* Pixel copy */                                                                   \
+  /* When isFirst is true, the input is 10bit/8bit, otherwise the input is 16bit */  \
+  /* When isLast is true, the output is 10bit/8bit, otherwise the output is 16bit */ \
+  m_filterCopy[0][0] = filterCopy<false, false, Pel, Pel>;                           \
+  m_filterCopy[0][1] = filterCopy<false, true, Pel, type>;                           \
+  m_filterCopy[1][0] = filterCopy<true, false, type, Pel>;                           \
+  m_filterCopy[1][1] = filterCopy<true, true, type, type>;                           \
+  /* Bidirectional interpolation */                                                  \
+  /* the input is 10bit/8bit */                                                      \
+  /* When isLast is true, the output is 10bit/8bit, otherwise the output is 16bit */ \
+  m_filter4x4[0][0] = filterXxY_N8<false, 4, type, Pel>;                             \
+  m_filter4x4[0][1] = filterXxY_N8<true, 4, type, type>;                             \
+  m_filter4x4[1][0] = filterXxY_N4<false, 4, type, Pel>;                             \
+  m_filter4x4[1][1] = filterXxY_N4<true, 4, type, type>;                             \
+  m_filter4x4[2][0] = filterXxY_N2<false, 4, type, Pel>;                             \
+  m_filter4x4[2][1] = filterXxY_N2<true, 4, type, type>;                             \
+  m_filter8x8[0][0] = filterXxY_N8<false, 8, type, Pel>;                             \
+  m_filter8x8[0][1] = filterXxY_N8<true, 8, type, type>;                             \
+  m_filter8x8[1][0] = filterXxY_N4<false, 8, type, Pel>;                             \
+  m_filter8x8[1][1] = filterXxY_N4<true, 8, type, type>;                             \
+  m_filter8x8[2][0] = filterXxY_N2<false, 8, type, Pel>;                             \
+  m_filter8x8[2][1] = filterXxY_N2<true, 8, type, type>;                             \
+  m_filter16x16[0][0] = filterXxY_N8<false, 16, type, Pel>;                          \
+  m_filter16x16[0][1] = filterXxY_N8<true, 16, type, type>;                          \
+  m_filter16x16[1][0] = filterXxY_N4<false, 16, type, Pel>;                          \
+  m_filter16x16[1][1] = filterXxY_N4<true, 16, type, type>;                          \
+  m_filter16x16[2][0] = filterXxY_N2<false, 16, type, Pel>;                          \
+  m_filter16x16[2][1] = filterXxY_N2<true, 16, type, type>;                          \
+  /* the input is 10bit/8bit, the output is 16bit*/                                  \
+  m_filterN2_2D = scalarFilterN2_2D<type, Pel>;                                      \
+  /* m_weightedGeoBlk, the input is 16bit, the output is 10/8bit */                  \
+  m_weightedGeoBlk = xWeightedGeoBlk<type>;
 
-  m_filterHor[2][0][0] = filter<2, false, false, false>;
-  m_filterHor[2][0][1] = filter<2, false, false, true>;
-  m_filterHor[2][1][0] = filter<2, false, true, false>;
-  m_filterHor[2][1][1] = filter<2, false, true, true>;
+#if ADAPTIVE_BIT_DEPTH
+  if (bitDepth <= 8) {
+    INIT_INTERPOLATION_FUNC(Pel8bit);
+  } else {
+    INIT_INTERPOLATION_FUNC(Pel);
+  }
+#else
+  INIT_INTERPOLATION_FUNC(Pel);
+#endif
 
-  m_filterVer[0][0][0] = filter<8, true, false, false>;
-  m_filterVer[0][0][1] = filter<8, true, false, true>;
-  m_filterVer[0][1][0] = filter<8, true, true, false>;
-  m_filterVer[0][1][1] = filter<8, true, true, true>;
-
-  m_filterVer[1][0][0] = filter<4, true, false, false>;
-  m_filterVer[1][0][1] = filter<4, true, false, true>;
-  m_filterVer[1][1][0] = filter<4, true, true, false>;
-  m_filterVer[1][1][1] = filter<4, true, true, true>;
-
-  m_filterVer[2][0][0] = filter<2, true, false, false>;
-  m_filterVer[2][0][1] = filter<2, true, false, true>;
-  m_filterVer[2][1][0] = filter<2, true, true, false>;
-  m_filterVer[2][1][1] = filter<2, true, true, true>;
-
-  m_filterCopy[0][0] = filterCopy<false, false>;
-  m_filterCopy[0][1] = filterCopy<false, true>;
-  m_filterCopy[1][0] = filterCopy<true, false>;
-  m_filterCopy[1][1] = filterCopy<true, true>;
-
-  m_filter4x4[0][0] = filterXxY_N8<false, 4>;
-  m_filter4x4[0][1] = filterXxY_N8<true, 4>;
-  m_filter4x4[1][0] = filterXxY_N4<false, 4>;
-  m_filter4x4[1][1] = filterXxY_N4<true, 4>;
-  m_filter4x4[2][0] = filterXxY_N2<false, 4>;
-  m_filter4x4[2][1] = filterXxY_N2<true, 4>;
-
-  m_filter8x8[0][0] = filterXxY_N8<false, 8>;
-  m_filter8x8[0][1] = filterXxY_N8<true, 8>;
-  m_filter8x8[1][0] = filterXxY_N4<false, 8>;
-  m_filter8x8[1][1] = filterXxY_N4<true, 8>;
-  m_filter8x8[2][0] = filterXxY_N2<false, 8>;
-  m_filter8x8[2][1] = filterXxY_N2<true, 8>;
-
-  m_filter16x16[0][0] = filterXxY_N8<false, 16>;
-  m_filter16x16[0][1] = filterXxY_N8<true, 16>;
-  m_filter16x16[1][0] = filterXxY_N4<false, 16>;
-  m_filter16x16[1][1] = filterXxY_N4<true, 16>;
-  m_filter16x16[2][0] = filterXxY_N2<false, 16>;
-  m_filter16x16[2][1] = filterXxY_N2<true, 16>;
-
-  m_filterN2_2D = scalarFilterN2_2D;
-
-  m_weightedGeoBlk = xWeightedGeoBlk;
+#undef INIT_INTERPOLATION_FUNC
 }
 
 /**
@@ -376,51 +385,49 @@ InterpolationFilter::InterpolationFilter() {
 //  If you change the functionality here, consider to switch off the SIMD implementation of this function.
 //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-template <bool isFirst, bool isLast>
-void InterpolationFilter::filterCopy(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
+template <bool isFirst, bool isLast, typename TSrc, typename TDst>
+void InterpolationFilter::filterCopy(const ClpRng& clpRng, const Pel* _src, const ptrdiff_t srcStride, Pel* _dst,
                                      const ptrdiff_t dstStride, int width, int height, bool biMCForDMVR) {
   int row, col;
 
-  if (isFirst == isLast) {
-    for (row = 0; row < height; row++) {
-      for (col = 0; col < width; col++) {
-        dst[col] = src[col];
-      }
+  const TSrc* src = reinterpret_cast<const TSrc*>(_src);
+  TDst* dst = reinterpret_cast<TDst*>(_dst);
 
-      INCY(src, srcStride);
-      INCY(dst, dstStride);
-    }
-  } else if (isFirst) {
-    const int shift = std::max<int>(2, (IF_INTERNAL_PREC - clpRng.bd));
-
-    if (biMCForDMVR) {
-      int shift10BitOut, offset;
-      if ((clpRng.bd - IF_INTERNAL_PREC_BILINEAR) > 0) {
-        shift10BitOut = (clpRng.bd - IF_INTERNAL_PREC_BILINEAR);
-        offset = (1 << (shift10BitOut - 1));
-        for (row = 0; row < height; row++) {
-          for (col = 0; col < width; col++) {
-            dst[col] = (src[col] + offset) >> shift10BitOut;
-          }
-          INCY(src, srcStride);
-          INCY(dst, dstStride);
+  if (biMCForDMVR) {
+    int shift10BitOut, offset;
+    if ((clpRng.bd - IF_INTERNAL_PREC_BILINEAR) > 0) {
+      shift10BitOut = (clpRng.bd - IF_INTERNAL_PREC_BILINEAR);
+      offset = (1 << (shift10BitOut - 1));
+      for (row = 0; row < height; row++) {
+        for (col = 0; col < width; col++) {
+          dst[col] = (src[col] + offset) >> shift10BitOut;
         }
-      } else {
-        shift10BitOut = (IF_INTERNAL_PREC_BILINEAR - clpRng.bd);
-        for (row = 0; row < height; row++) {
-          for (col = 0; col < width; col++) {
-            dst[col] = src[col] << shift10BitOut;
-          }
-          INCY(src, srcStride);
-          INCY(dst, dstStride);
-        }
+        INCY(src, srcStride);
+        INCY(dst, dstStride);
       }
     } else {
-      // template <typename ValueType>
-      // inline ValueType leftShift_round( const ValueType value, const int shift )
-      // {
-      //   return ( shift >= 0 ) ? ( value << shift ) : ( ( value + ( ValueType( 1 ) << ( -shift - 1 ) ) ) >> -shift );
-      // }
+      shift10BitOut = (IF_INTERNAL_PREC_BILINEAR - clpRng.bd);
+      for (row = 0; row < height; row++) {
+        for (col = 0; col < width; col++) {
+          dst[col] = src[col] << shift10BitOut;
+        }
+        INCY(src, srcStride);
+        INCY(dst, dstStride);
+      }
+    }
+  } else {
+    if (isFirst == isLast) {
+      for (row = 0; row < height; row++) {
+        for (col = 0; col < width; col++) {
+          dst[col] = src[col];
+        }
+
+        INCY(src, srcStride);
+        INCY(dst, dstStride);
+      }
+    } else if (isFirst) {
+      const int shift = std::max<int>(2, (IF_INTERNAL_PREC - clpRng.bd));
+
       if (shift >= 0) {
         for (row = 0; row < height; row++) {
           for (col = 0; col < width; col++) {
@@ -444,35 +451,9 @@ void InterpolationFilter::filterCopy(const ClpRng& clpRng, const Pel* src, const
           INCY(dst, dstStride);
         }
       }
-    }
-  } else {
-    const int shift = std::max<int>(2, (IF_INTERNAL_PREC - clpRng.bd));
-
-    if (biMCForDMVR) {
-      int shift10BitOut, offset;
-      if ((clpRng.bd - IF_INTERNAL_PREC_BILINEAR) > 0) {
-        shift10BitOut = (clpRng.bd - IF_INTERNAL_PREC_BILINEAR);
-        offset = (1 << (shift10BitOut - 1));
-        for (row = 0; row < height; row++) {
-          for (col = 0; col < width; col++) {
-            dst[col] = (src[col] + offset) >> shift10BitOut;
-          }
-
-          INCY(src, srcStride);
-          INCY(dst, dstStride);
-        }
-      } else {
-        shift10BitOut = (IF_INTERNAL_PREC_BILINEAR - clpRng.bd);
-        for (row = 0; row < height; row++) {
-          for (col = 0; col < width; col++) {
-            dst[col] = src[col] << shift10BitOut;
-          }
-
-          INCY(src, srcStride);
-          INCY(dst, dstStride);
-        }
-      }
     } else {
+      const int shift = std::max<int>(2, (IF_INTERNAL_PREC - clpRng.bd));
+
       for (row = 0; row < height; row++) {
         for (col = 0; col < width; col++) {
           Pel val = src[col];
@@ -512,13 +493,14 @@ void InterpolationFilter::filterCopy(const ClpRng& clpRng, const Pel* src, const
 //  If you change the functionality here, consider to switch off the SIMD implementation of this function.
 //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-template <int N, bool isVertical, bool isFirst, bool isLast>
-void InterpolationFilter::filter(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
+template <int N, bool isVertical, bool isFirst, bool isLast, typename TSrc, typename TDst>
+void InterpolationFilter::filter(const ClpRng& clpRng, const Pel* _src, const ptrdiff_t srcStride, Pel* _dst,
                                  const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeff,
                                  bool biMCForDMVR) {
   int row, col;
-
-  Pel c[8];
+  const TSrc* src = reinterpret_cast<const TSrc*>(_src);
+  TDst* dst = reinterpret_cast<TDst*>(_dst);
+  TFilterCoeff c[8];
   c[0] = coeff[0];
   c[1] = coeff[1];
   if (N >= 4) {
@@ -600,13 +582,14 @@ void InterpolationFilter::filterN2_2D(const ComponentID compID, const Pel* src, 
                 m_bilinearFilterPrec4[fracY]);
 }
 
+template <typename TSrc, typename TDst>
 void InterpolationFilter::scalarFilterN2_2D(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                                             const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* ch,
                                             TFilterCoeff const* cv) {
-  Pel* tmp = (Pel*)alloca(width * (height + 1) * sizeof(Pel));
+  int16_t* tmp = reinterpret_cast<int16_t*>(alloca(width * (height + 1) * sizeof(int16_t)));
 
-  filter<2, false, true, false>(clpRng, src, srcStride, tmp, width, width, height + 1, ch, true);
-  filter<2, true, false, false>(clpRng, tmp, width, dst, dstStride, width, height, cv, true);
+  filter<2, false, true, false, TSrc, int16_t>(clpRng, src, srcStride, tmp, width, width, height + 1, ch, true);
+  filter<2, true, false, false, int16_t, TDst>(clpRng, tmp, width, dst, dstStride, width, height, cv, true);
 }
 
 void InterpolationFilter::filter4x4(const ComponentID compID, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
@@ -684,16 +667,19 @@ void InterpolationFilter::filter16x16(const ComponentID compID, const Pel* src, 
   }
 }
 
-template <bool isLast, int w>
-void InterpolationFilter::filterXxY_N2(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* _dst,
+template <bool isLast, int w, typename TSrc, typename TDst>
+void InterpolationFilter::filterXxY_N2(const ClpRng& clpRng, const Pel* _src, const ptrdiff_t srcStride, Pel* _dst,
                                        const ptrdiff_t dstStride, int width, int h, TFilterCoeff const* coeffH,
                                        TFilterCoeff const* coeffV) {
   int row, col;
 
-  Pel cH[2];
+  const TSrc* src = reinterpret_cast<const TSrc*>(_src);
+  TDst* dst = reinterpret_cast<TDst*>(_dst);
+
+  TFilterCoeff cH[2];
   cH[0] = coeffH[0];
   cH[1] = coeffH[1];
-  Pel cV[2];
+  TFilterCoeff cV[2];
   cV[0] = coeffV[0];
   cV[1] = coeffV[1];
 
@@ -715,12 +701,12 @@ void InterpolationFilter::filterXxY_N2(const ClpRng& clpRng, const Pel* src, con
     offset2nd = 0;
   }
 
-  int* tmp = (int*)alloca(w * h * sizeof(int));
+  int* tmp = reinterpret_cast<int*>(alloca(w * h * sizeof(int)));
   memset(tmp, 0, w * h * sizeof(int));
 
-  int** dst = (int**)alloca(h * sizeof(int*));
+  int** dstTmp = reinterpret_cast<int**>(alloca(h * sizeof(int*)));
 
-  for (int i = 0; i < h; i++) dst[i] = &tmp[i * w];
+  for (int i = 0; i < h; i++) dstTmp[i] = &tmp[i * w];
 
   for (row = 0; row < (h + 1); row++) {
     for (col = 0; col < w; col++) {
@@ -731,35 +717,37 @@ void InterpolationFilter::filterXxY_N2(const ClpRng& clpRng, const Pel* src, con
 
       sum = (sum + offset1st) >> shift1st;
 
-      if (row >= 0 && row < h) dst[row][col] += sum * cV[0];
+      if (row >= 0 && row < h) dstTmp[row][col] += sum * cV[0];
 
       if (row >= 1) {
-        int val = (dst[row - 1][col] + sum * cV[1] + offset2nd) >> shift2nd;
+        int val = (dstTmp[row - 1][col] + sum * cV[1] + offset2nd) >> shift2nd;
         if (isLast) {
           val = ClipPel(val, clpRng);
         }
-        _dst[col] = val;
+        dst[col] = val;
       }
     }
 
     INCY(src, srcStride);
-    if (row >= 1) INCY(_dst, dstStride);
-    ;
+    if (row >= 1) INCY(dst, dstStride);
   }
 }
 
-template <bool isLast, int w>
-void InterpolationFilter::filterXxY_N4(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* _dst,
+template <bool isLast, int w, typename TSrc, typename TDst>
+void InterpolationFilter::filterXxY_N4(const ClpRng& clpRng, const Pel* _src, const ptrdiff_t srcStride, Pel* _dst,
                                        const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                                        TFilterCoeff const* coeffV) {
   int row, col;
 
-  Pel cH[4];
+  const TSrc* src = reinterpret_cast<const TSrc*>(_src);
+  TDst* dst = reinterpret_cast<TDst*>(_dst);
+
+  TFilterCoeff cH[4];
   cH[0] = coeffH[0];
   cH[1] = coeffH[1];
   cH[2] = coeffH[2];
   cH[3] = coeffH[3];
-  Pel cV[4];
+  TFilterCoeff cV[4];
   cV[0] = coeffV[0];
   cV[1] = coeffV[1];
   cV[2] = coeffV[2];
@@ -785,12 +773,12 @@ void InterpolationFilter::filterXxY_N4(const ClpRng& clpRng, const Pel* src, con
 
   OFFSET(src, srcStride, -1, -1);
 
-  int* tmp = (int*)alloca(w * height * sizeof(int));
+  int* tmp = reinterpret_cast<int*>(alloca(w * height * sizeof(int)));
   memset(tmp, 0, w * height * sizeof(int));
 
-  int** dst = (int**)alloca(height * sizeof(int*));
+  int** dstTmp = reinterpret_cast<int**>(alloca(height * sizeof(int*)));
 
-  for (int i = 0; i < height; i++) dst[i] = &tmp[i * w];
+  for (int i = 0; i < height; i++) dstTmp[i] = &tmp[i * w];
 
   for (row = 0; row < (height + 3); row++) {
     for (col = 0; col < w; col++) {
@@ -803,32 +791,34 @@ void InterpolationFilter::filterXxY_N4(const ClpRng& clpRng, const Pel* src, con
 
       sum = (sum + offset1st) >> shift1st;
 
-      if (row >= 0 && row < (height + 0)) dst[row][col] += sum * cV[0];
-      if (row >= 1 && row < (height + 1)) dst[row - 1][col] += sum * cV[1];
-      if (row >= 2 && row < (height + 2)) dst[row - 2][col] += sum * cV[2];
+      if (row >= 0 && row < (height + 0)) dstTmp[row][col] += sum * cV[0];
+      if (row >= 1 && row < (height + 1)) dstTmp[row - 1][col] += sum * cV[1];
+      if (row >= 2 && row < (height + 2)) dstTmp[row - 2][col] += sum * cV[2];
 
       if (row >= 3) {
-        int val = (dst[row - 3][col] + sum * cV[3] + offset2nd) >> shift2nd;
+        int val = (dstTmp[row - 3][col] + sum * cV[3] + offset2nd) >> shift2nd;
         if (isLast) {
           val = ClipPel(val, clpRng);
         }
-        _dst[col] = val;
+        dst[col] = val;
       }
     }
 
     INCY(src, srcStride);
-    if (row >= 3) INCY(_dst, dstStride);
-    ;
+    if (row >= 3) INCY(dst, dstStride);
   }
 }
 
-template <bool isLast, int w>
-void InterpolationFilter::filterXxY_N8(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* _dst,
+template <bool isLast, int w, typename TSrc, typename TDst>
+void InterpolationFilter::filterXxY_N8(const ClpRng& clpRng, const Pel* _src, const ptrdiff_t srcStride, Pel* _dst,
                                        const ptrdiff_t dstStride, int width, int h, TFilterCoeff const* coeffH,
                                        TFilterCoeff const* coeffV) {
   int row, col;
 
-  Pel cH[8];
+  const TSrc* src = reinterpret_cast<const TSrc*>(_src);
+  TDst* dst = reinterpret_cast<TDst*>(_dst);
+
+  TFilterCoeff cH[8];
   cH[0] = coeffH[0];
   cH[1] = coeffH[1];
   cH[2] = coeffH[2];
@@ -837,7 +827,7 @@ void InterpolationFilter::filterXxY_N8(const ClpRng& clpRng, const Pel* src, con
   cH[5] = coeffH[5];
   cH[6] = coeffH[6];
   cH[7] = coeffH[7];
-  Pel cV[8];
+  TFilterCoeff cV[8];
   cV[0] = coeffV[0];
   cV[1] = coeffV[1];
   cV[2] = coeffV[2];
@@ -867,12 +857,12 @@ void InterpolationFilter::filterXxY_N8(const ClpRng& clpRng, const Pel* src, con
 
   OFFSET(src, srcStride, -3, -3);
 
-  int* tmp = (int*)alloca(w * h * sizeof(int));
+  int* tmp = reinterpret_cast<int*>(alloca(w * h * sizeof(int)));
   memset(tmp, 0, w * h * sizeof(int));
 
-  int** dst = (int**)alloca(h * sizeof(int*));
+  int** dstTmp = reinterpret_cast<int**>(alloca(h * sizeof(int*)));
 
-  for (int i = 0; i < h; i++) dst[i] = &tmp[i * w];
+  for (int i = 0; i < h; i++) dstTmp[i] = &tmp[i * w];
 
   for (row = 0; row < (h + 7); row++) {
     for (col = 0; col < w; col++) {
@@ -889,26 +879,25 @@ void InterpolationFilter::filterXxY_N8(const ClpRng& clpRng, const Pel* src, con
 
       sum = (sum + offset1st) >> shift1st;
 
-      if (row >= 0 && row < (h + 0)) dst[row][col] += sum * cV[0];
-      if (row >= 1 && row < (h + 1)) dst[row - 1][col] += sum * cV[1];
-      if (row >= 2 && row < (h + 2)) dst[row - 2][col] += sum * cV[2];
-      if (row >= 3 && row < (h + 3)) dst[row - 3][col] += sum * cV[3];
-      if (row >= 4 && row < (h + 4)) dst[row - 4][col] += sum * cV[4];
-      if (row >= 5 && row < (h + 5)) dst[row - 5][col] += sum * cV[5];
-      if (row >= 6 && row < (h + 6)) dst[row - 6][col] += sum * cV[6];
+      if (row >= 0 && row < (h + 0)) dstTmp[row][col] += sum * cV[0];
+      if (row >= 1 && row < (h + 1)) dstTmp[row - 1][col] += sum * cV[1];
+      if (row >= 2 && row < (h + 2)) dstTmp[row - 2][col] += sum * cV[2];
+      if (row >= 3 && row < (h + 3)) dstTmp[row - 3][col] += sum * cV[3];
+      if (row >= 4 && row < (h + 4)) dstTmp[row - 4][col] += sum * cV[4];
+      if (row >= 5 && row < (h + 5)) dstTmp[row - 5][col] += sum * cV[5];
+      if (row >= 6 && row < (h + 6)) dstTmp[row - 6][col] += sum * cV[6];
 
       if (row >= 7) {
-        int val = (dst[row - 7][col] + sum * cV[7] + offset2nd) >> shift2nd;
+        int val = (dstTmp[row - 7][col] + sum * cV[7] + offset2nd) >> shift2nd;
         if (isLast) {
           val = ClipPel(val, clpRng);
         }
-        _dst[col] = val;
+        dst[col] = val;
       }
     }
 
     INCY(src, srcStride);
-    if (row >= 7) INCY(_dst, dstStride);
-    ;
+    if (row >= 7) INCY(dst, dstStride);
   }
 }
 
@@ -1125,10 +1114,11 @@ void InterpolationFilter::weightedGeoBlk(const PredictionUnit& pu, const uint32_
   m_weightedGeoBlk(pu, width, height, compIdx, splitDir, predDst, predSrc0, predSrc1, clipRng);
 }
 
+template <typename TDst>
 void InterpolationFilter::xWeightedGeoBlk(const PredictionUnit& pu, const uint32_t width, const uint32_t height,
                                           const ComponentID compIdx, const uint8_t splitDir, PelUnitBuf& predDst,
                                           PelUnitBuf& predSrc0, PelUnitBuf& predSrc1, const ClpRng& clipRng) {
-  Pel* dst = predDst.get(compIdx).buf;
+  TDst* dst = reinterpret_cast<TDst*>(predDst.get(compIdx).buf);
   Pel* src0 = predSrc0.get(compIdx).buf;
   Pel* src1 = predSrc1.get(compIdx).buf;
   ptrdiff_t strideDst = predDst.get(compIdx).stride - width;
@@ -1150,7 +1140,7 @@ void InterpolationFilter::xWeightedGeoBlk(const PredictionUnit& pu, const uint32
   int16_t stepY = 0;
   int16_t* weight = nullptr;
   if (g_angle2mirror[angle] == 2) {
-    stepY = -(int)((GEO_WEIGHT_MASK_SIZE << scaleY) + pu.lwidth());
+    stepY = -static_cast<int>((GEO_WEIGHT_MASK_SIZE << scaleY) + pu.lwidth());
     weight =
         &g_globalGeoWeights[g_angle2mask[angle]][(GEO_WEIGHT_MASK_SIZE - 1 - g_weightOffset[splitDir][hIdx][wIdx][1]) *
                                                      GEO_WEIGHT_MASK_SIZE +
@@ -1177,21 +1167,6 @@ void InterpolationFilter::xWeightedGeoBlk(const PredictionUnit& pu, const uint32
     src1 += strideSrc1;
     weight += stepY;
   }
-}
-
-/**
- * \brief turn on SIMD fuc
- *
- * \param bEn   enabled of SIMD function for interpolation
- */
-void InterpolationFilter::initInterpolationFilter(bool enable) {
-#if ENABLE_SIMD_OPT_MCIF
-#  ifdef TARGET_SIMD_X86
-  if (enable) {
-    initInterpolationFilterX86();
-  }
-#  endif
-#endif
 }
 
 //! \}

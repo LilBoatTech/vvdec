@@ -68,64 +68,26 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #    define _mm256_set_m128i(v0, v1) _mm256_inserti128_si256(_mm256_castsi128_si256(v1), (v0), 1)
 #  endif
 
-static bool isProcessDisabled(int xPos, int yPos, int numVerVirBndry, int numHorVirBndry, int verVirBndryPos[],
-                              int horVirBndryPos[]) {
-  for (int i = 0; i < numVerVirBndry; i++) {
-    if ((xPos == verVirBndryPos[i]) || (xPos == verVirBndryPos[i] - 1)) {
-      return true;
-    }
-  }
-  for (int i = 0; i < numHorVirBndry; i++) {
-    if ((yPos == horVirBndryPos[i]) || (yPos == horVirBndryPos[i] - 1)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-static bool isHorProcessDisabled(int yPos, int numHorVirBndry, int horVirBndryPos[]) {
-  for (int i = 0; i < numHorVirBndry; i++) {
-    if ((yPos == horVirBndryPos[i]) || (yPos == horVirBndryPos[i] - 1)) {
-      return true;
-    }
-  }
-  return false;
-}
-static bool isVerProcessDisabled(int xPos, int numVerVirBndry, int verVirBndryPos[]) {
-  for (int i = 0; i < numVerVirBndry; i++) {
-    if ((xPos == verVirBndryPos[i]) || (xPos == verVirBndryPos[i] - 1)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 template <X86_VEXT vext>
-static void offsetBlock_SIMD_SAO_TYPE_BO(const int channelBitDepth, int* offset, int startIdx, const Pel* srcBlk,
-                                         Pel* resBlk, ptrdiff_t srcStride, ptrdiff_t resStride, int width, int height) {
-  const Pel* srcLine = srcBlk;
-  Pel* resLine = resBlk;
-
+static void processBO_SIMD(Pel* resLine, ptrdiff_t resStride, int width, int height, const int* offset, int startIdx,
+                           const ClpRng& clpRng, int channelBitDepth) {
   const int shiftBits = channelBitDepth - NUM_SAO_BO_CLASSES_LOG2;
   int8_t p_eo_offsets[16] = {0};
   for (int i = 0; i < 4; i++) {
-    p_eo_offsets[i] = offset[startIdx + i];
+    p_eo_offsets[i] = offset[(startIdx + i) % MAX_NUM_SAO_CLASSES];
   }
-  for (int y = 0; y < height; y++) {
-    for (int x = 0; x < width;) {
 #  ifdef USE_AVX2
-      // AVX2
-      if (width - x >= 16 && vext >= AVX2) {
-        __m256i vbaseoffset = _mm256_set1_epi16(startIdx);
-        __m256i vminus = _mm256_set1_epi8(-1);
-        __m256i vzero = _mm256_set1_epi8(0);
+  if (vext >= AVX2) {
+    __m256i vbaseoffset = _mm256_set1_epi16(startIdx);
+    __m256i vminus = _mm256_set1_epi8(-1);
+    __m256i vzero = _mm256_set1_epi8(0);
 
-        __m256i vfour = _mm256_set1_epi16(4);
-        __m256i vibdimax = _mm256_set1_epi16((1 << channelBitDepth) - 1);
-        __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
-
-        __m256i vsrc = _mm256_loadu_si256((__m256i*)&srcLine[x]);
+    __m256i vfour = _mm256_set1_epi16(4);
+    __m256i vibdimax = _mm256_set1_epi16((1 << channelBitDepth) - 1);
+    __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x += 16) {
+        __m256i vsrc = _mm256_loadu_si256((__m256i*)&resLine[x]);
         __m256i bands = _mm256_srai_epi16(vsrc, shiftBits);
         bands = _mm256_sub_epi16(bands, vbaseoffset);
         __m256i mask1 = _mm256_cmpgt_epi16(bands, vminus);
@@ -141,20 +103,23 @@ static void offsetBlock_SIMD_SAO_TYPE_BO(const int channelBitDepth, int* offset,
         vsrc = _mm256_add_epi16(vsrc, veoffsets);
         vsrc = _mm256_min_epi16(_mm256_max_epi16(vsrc, vzero), vibdimax);
         _mm256_storeu_si256((__m256i*)&resLine[x], vsrc);
-
-        x += 16;
-      } else
+      }
+      resLine += resStride;
+    }
+    _mm256_zeroupper();
+  } else
 #  endif
-      {
-        __m128i vbaseoffset = _mm_set1_epi16(startIdx);
-        __m128i vminus = _mm_set1_epi8(-1);
-        __m128i vzero = _mm_set1_epi8(0);
+  {
+    __m128i vbaseoffset = _mm_set1_epi16(startIdx);
+    __m128i vminus = _mm_set1_epi8(-1);
+    __m128i vzero = _mm_set1_epi8(0);
 
-        __m128i vfour = _mm_set1_epi16(4);
-        __m128i vibdimax = _mm_set1_epi16((1 << channelBitDepth) - 1);
-        __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
-
-        __m128i vsrc = _mm_loadu_si128((__m128i*)&srcLine[x]);
+    __m128i vfour = _mm_set1_epi16(4);
+    __m128i vibdimax = _mm_set1_epi16((1 << channelBitDepth) - 1);
+    __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x += 8) {
+        __m128i vsrc = _mm_loadu_si128((__m128i*)&resLine[x]);
         __m128i bands = _mm_srai_epi16(vsrc, shiftBits);
         bands = _mm_sub_epi16(bands, vbaseoffset);
         __m128i mask1 = _mm_cmpgt_epi16(bands, vminus);
@@ -170,874 +135,927 @@ static void offsetBlock_SIMD_SAO_TYPE_BO(const int channelBitDepth, int* offset,
         vsrc = _mm_add_epi16(vsrc, veoffsets);
         vsrc = _mm_min_epi16(_mm_max_epi16(vsrc, vzero), vibdimax);
         _mm_store_si128((__m128i*)&resLine[x], vsrc);
-
-        x += 8;
       }
-    }
-    srcLine += srcStride;
-    resLine += resStride;
-  }
-}
-
-template <X86_VEXT vext>
-static void offsetBlock_SIMD_SAO_TYPE_EO_0(
-    const int channelBitDepth, const ClpRng& clpRng, int* offset, const Pel* srcBlk, Pel* resBlk, ptrdiff_t srcStride,
-    ptrdiff_t resStride, int width, int height, bool isLeftAvail, bool isRightAvail, bool isAboveAvail,
-    bool isBelowAvail, bool isAboveLeftAvail, bool isAboveRightAvail, bool isBelowLeftAvail, bool isBelowRightAvail,
-    std::vector<int8_t>* m_signLineBuf1, std::vector<int8_t>* m_signLineBuf2, bool isCtuCrossedByVirtualBoundaries,
-    int horVirBndryPos[], int verVirBndryPos[], int numHorVirBndry, int numVerVirBndry, uint16_t bndmask[MAX_CU_SIZE]) {
-  const Pel* srcLine = srcBlk;
-  Pel* resLine = resBlk;
-
-  int x, y, startX, endX, edgeType;
-  int8_t signLeft, signRight;
-
-  if (isLeftAvail && isRightAvail) {
-    int8_t p_eo_offsets[16] = {0};
-    for (int i = 0; i < SAO_EO_NUM_CATEGORIES; i++) {
-      p_eo_offsets[i] = offset[i];
-    }
-#  ifdef USE_AVX2
-    // AVX2
-    //      if ((width>8) && (vext >= AVX2))
-    if (0) {
-      __m256i vsrca, vsrcal, vsrcar, virBmask;
-
-      __m256i vbaseoffset = _mm256_set1_epi16(2);
-      __m256i vplusone = _mm256_set1_epi16(1);
-      __m256i vzero = _mm256_set1_epi8(0);
-      __m256i vibdimax = _mm256_set1_epi16((1 << channelBitDepth) - 1);
-      __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
-
-      if (isCtuCrossedByVirtualBoundaries) {
-        for (y = 0; y < height; y++) {
-          for (x = 0; x < width; x += 16) {
-            vsrca = _mm256_loadu_si256((__m256i*)&srcLine[x]);
-            vsrcal = _mm256_loadu_si256((__m256i*)&srcLine[x - 1]);
-            vsrcar = _mm256_loadu_si256((__m256i*)&srcLine[x + 1]);
-            virBmask = _mm256_loadu_si256((__m256i*)&bndmask[x]);
-
-            vsrcal = _mm256_sub_epi16(vsrca, vsrcal);
-            vsrcar = _mm256_sub_epi16(vsrca, vsrcar);
-            __m256i vsignl = _mm256_sign_epi16(vplusone, vsrcal);
-            __m256i vsignr = _mm256_sign_epi16(vplusone, vsrcar);
-            __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignl, vsignr), vbaseoffset);
-            __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm256_slli_epi16(veoffsets, 8);
-            veoffsets = _mm256_srai_epi16(veoffsets, 8);
-
-            vsrcal = _mm256_add_epi16(vsrca, veoffsets);
-            vsrcal = _mm256_min_epi16(_mm256_max_epi16(vsrcal, vzero), vibdimax);
-
-            vsrcar = _mm256_blendv_epi8(vsrcal, vsrca, virBmask);
-
-            _mm256_storeu_si256((__m256i*)&resLine[x], vsrcar);
-          }
-          srcLine += srcStride;
-          resLine += resStride;
-        }
-      } else {
-        for (y = 0; y < height; y++) {
-          for (x = 0; x < width; x += 16) {
-            vsrca = _mm256_loadu_si256((__m256i*)&srcLine[x]);
-            vsrcal = _mm256_loadu_si256((__m256i*)&srcLine[x - 1]);
-            vsrcar = _mm256_loadu_si256((__m256i*)&srcLine[x + 1]);
-            vsrcal = _mm256_sub_epi16(vsrca, vsrcal);
-            vsrcar = _mm256_sub_epi16(vsrca, vsrcar);
-            __m256i vsignl = _mm256_sign_epi16(vplusone, vsrcal);
-            __m256i vsignr = _mm256_sign_epi16(vplusone, vsrcar);
-            __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignl, vsignr), vbaseoffset);
-            __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm256_slli_epi16(veoffsets, 8);
-            veoffsets = _mm256_srai_epi16(veoffsets, 8);
-
-            vsrca = _mm256_add_epi16(vsrca, veoffsets);
-            vsrca = _mm256_min_epi16(_mm256_max_epi16(vsrca, vzero), vibdimax);
-
-            _mm256_storeu_si256((__m256i*)&resLine[x], vsrca);
-          }
-          srcLine += srcStride;
-          resLine += resStride;
-        }
-      }
-    } else
-#  endif
-    {
-      __m128i vsrca, vsrcal, vsrcar, virBmask;
-      __m128i vbaseoffset = _mm_set1_epi16(2);
-      __m128i vplusone = _mm_set1_epi16(1);
-      __m128i vzero = _mm_set1_epi8(0);
-      __m128i vibdimax = _mm_set1_epi16((1 << channelBitDepth) - 1);
-      __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
-      if (isCtuCrossedByVirtualBoundaries) {
-        for (y = 0; y < height; y++) {
-          for (x = 0; x < width; x += 8) {
-            vsrca = _mm_loadu_si128((__m128i*)&srcLine[x]);
-            vsrcal = _mm_loadu_si128((__m128i*)&srcLine[x - 1]);
-            vsrcar = _mm_loadu_si128((__m128i*)&srcLine[x + 1]);
-            virBmask = _mm_loadu_si128((__m128i*)&bndmask[x]);
-            vsrcal = _mm_sub_epi16(vsrca, vsrcal);
-            vsrcar = _mm_sub_epi16(vsrca, vsrcar);
-            __m128i vsignl = _mm_sign_epi16(vplusone, vsrcal);
-            __m128i vsignr = _mm_sign_epi16(vplusone, vsrcar);
-            __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignl, vsignr), vbaseoffset);
-            __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm_slli_epi16(veoffsets, 8);
-            veoffsets = _mm_srai_epi16(veoffsets, 8);
-
-            vsrcal = _mm_add_epi16(vsrca, veoffsets);
-            vsrcal = _mm_min_epi16(_mm_max_epi16(vsrcal, vzero), vibdimax);
-
-            vsrcar = _mm_blendv_epi8(vsrcal, vsrca, virBmask);
-
-            _mm_store_si128((__m128i*)&resLine[x], vsrcar);
-          }
-          srcLine += srcStride;
-          resLine += resStride;
-        }
-      } else {
-        for (y = 0; y < height; y++) {
-          for (x = 0; x < width; x += 8) {
-            vsrca = _mm_loadu_si128((__m128i*)&srcLine[x]);
-            vsrcal = _mm_loadu_si128((__m128i*)&srcLine[x - 1]);
-            vsrcar = _mm_loadu_si128((__m128i*)&srcLine[x + 1]);
-            vsrcal = _mm_sub_epi16(vsrca, vsrcal);
-            vsrcar = _mm_sub_epi16(vsrca, vsrcar);
-            __m128i vsignl = _mm_sign_epi16(vplusone, vsrcal);
-            __m128i vsignr = _mm_sign_epi16(vplusone, vsrcar);
-            __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignl, vsignr), vbaseoffset);
-            __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm_slli_epi16(veoffsets, 8);
-            veoffsets = _mm_srai_epi16(veoffsets, 8);
-
-            vsrca = _mm_add_epi16(vsrca, veoffsets);
-            vsrca = _mm_min_epi16(_mm_max_epi16(vsrca, vzero), vibdimax);
-            _mm_store_si128((__m128i*)&resLine[x], vsrca);
-          }
-          srcLine += srcStride;
-          resLine += resStride;
-        }
-      }
-    }
-  } else {
-    offset += 2;
-    startX = isLeftAvail ? 0 : 1;
-    endX = isRightAvail ? width : (width - 1);
-    for (y = 0; y < height; y++) {
-      signLeft = (int8_t)sgn(srcLine[startX] - srcLine[startX - 1]);
-      for (x = startX; x < endX; x++) {
-        signRight = (int8_t)sgn(srcLine[x] - srcLine[x + 1]);
-        if (isCtuCrossedByVirtualBoundaries && isVerProcessDisabled(x, numVerVirBndry, verVirBndryPos)) {
-          signLeft = -signRight;
-          continue;
-        }
-        edgeType = signRight + signLeft;
-        signLeft = -signRight;
-
-        resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-      }
-
-      srcLine += srcStride;
       resLine += resStride;
     }
   }
 }
 
 template <X86_VEXT vext>
-static void offsetBlock_SIMD_SAO_TYPE_EO_90(
-    const int channelBitDepth, const ClpRng& clpRng, int* offset, const Pel* srcBlk, Pel* resBlk, ptrdiff_t srcStride,
-    ptrdiff_t resStride, int width, int height, bool isLeftAvail, bool isRightAvail, bool isAboveAvail,
-    bool isBelowAvail, bool isAboveLeftAvail, bool isAboveRightAvail, bool isBelowLeftAvail, bool isBelowRightAvail,
-    std::vector<int8_t>* m_signLineBuf1, std::vector<int8_t>* m_signLineBuf2, bool isCtuCrossedByVirtualBoundaries,
-    int horVirBndryPos[], int verVirBndryPos[], int numHorVirBndry, int numVerVirBndry, uint16_t bndmask[MAX_CU_SIZE]) {
-  const Pel* srcLine = srcBlk;
-  Pel* resLine = resBlk;
-
-  int x, y, startY, endY;
-
+static void processEO0_SIMD(Pel* resLine, ptrdiff_t resStride, int width, int height, const int* offset,
+                            const ClpRng& clpRng, bool isLeftAvail, bool isRightAvail, const Pel* leftLine) {
+  int startX = isLeftAvail ? 0 : 1;
+  int endX = isRightAvail ? width : (width - 1);
+  int x, y;
   int8_t p_eo_offsets[16] = {0};
   for (int i = 0; i < SAO_EO_NUM_CATEGORIES; i++) {
     p_eo_offsets[i] = offset[i];
   }
-  const Pel* srcLineAbove = srcLine - srcStride;
-  const Pel* srcLineBelow = srcLine + srcStride;
-  startY = 0;
-  if (!isAboveAvail) {
-    startY = 1;
-    srcLineAbove = srcLine;
-    srcLine += srcStride;
-    resLine += resStride;
-    srcLineBelow = srcLine + srcStride;
-  }
-  endY = height;
-  if (!isBelowAvail) {
-    endY = height - 1;
-  }
 #  ifdef USE_AVX2
-  // AVX2
-  if ((width > 8) && (vext >= AVX2))
-  //    if (0)
-  {
-    __m256i vsrca, vsrcat, vsrcab;
-
-    __m256i vbaseoffset = _mm256_set1_epi16(2);
-    __m256i vplusone = _mm256_set1_epi16(1);
-    __m256i vzero = _mm256_set1_epi8(0);
-    __m256i vibdimax = _mm256_set1_epi16((1 << channelBitDepth) - 1);
-    __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
-    const Pel* srcLineBelow = srcLine + srcStride;
-
-    if (isCtuCrossedByVirtualBoundaries) {
-      for (y = startY; y < endY; y++) {
-        if (!isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          for (x = 0; x < width; x += 16) {
-            vsrca = _mm256_loadu_si256((__m256i*)&srcLine[x]);
-            vsrcat = _mm256_loadu_si256((__m256i*)&srcLineAbove[x]);
-            vsrcab = _mm256_loadu_si256((__m256i*)&srcLineBelow[x]);
-            vsrcat = _mm256_sub_epi16(vsrca, vsrcat);
-            vsrcab = _mm256_sub_epi16(vsrca, vsrcab);
-            __m256i vsignt = _mm256_sign_epi16(vplusone, vsrcat);
-            __m256i vsignb = _mm256_sign_epi16(vplusone, vsrcab);
-            __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignt, vsignb), vbaseoffset);
-            __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm256_slli_epi16(veoffsets, 8);
-            veoffsets = _mm256_srai_epi16(veoffsets, 8);
-
-            vsrca = _mm256_add_epi16(vsrca, veoffsets);
-            vsrca = _mm256_min_epi16(_mm256_max_epi16(vsrca, vzero), vibdimax);
-
-            _mm256_storeu_si256((__m256i*)&resLine[x], vsrca);
-          }
-        }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
-        resLine += resStride;
-      }
-    } else {
-      for (y = startY; y < endY; y++) {
+  if (vext >= AVX2) {
+    if (isLeftAvail && isRightAvail && !(width & 15)) {
+      // fast path
+      __m256i vbaseoffset = _mm256_set1_epi16(2);
+      __m256i vplusone = _mm256_set1_epi16(1);
+      __m256i vzero = _mm256_set1_epi8(0);
+      __m256i vibdimax = _mm256_set1_epi16(clpRng.max());
+      __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
+      for (y = 0; y < height; y++) {
+        Pel cm1 = leftLine[y];
+        //__m256i pre = _mm256_insert_epi16(vzero, cm1, 0);
         for (x = 0; x < width; x += 16) {
-          vsrca = _mm256_loadu_si256((__m256i*)&srcLine[x]);
-          vsrcat = _mm256_loadu_si256((__m256i*)&srcLineAbove[x]);
-          vsrcab = _mm256_loadu_si256((__m256i*)&srcLineBelow[x]);
-          vsrcat = _mm256_sub_epi16(vsrca, vsrcat);
-          vsrcab = _mm256_sub_epi16(vsrca, vsrcab);
-          __m256i vsignt = _mm256_sign_epi16(vplusone, vsrcat);
-          __m256i vsignb = _mm256_sign_epi16(vplusone, vsrcab);
-          __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignt, vsignb), vbaseoffset);
+          __m256i vsrca, vsrcal, vsrcar;
+          vsrca = _mm256_loadu_si256((__m256i*)&resLine[x]);
+          vsrcal = _mm256_loadu_si256((__m256i*)&resLine[x - 1]);
+          vsrcar = _mm256_loadu_si256((__m256i*)&resLine[x + 1]);
+          // todo: find a better way to insert cm1
+          vsrcal = _mm256_insert_epi16(vsrcal, cm1, 0);  // this call is slow!
+
+          vsrcal = _mm256_sub_epi16(vsrca, vsrcal);
+          vsrcar = _mm256_sub_epi16(vsrca, vsrcar);
+          __m256i vsignl = _mm256_sign_epi16(vplusone, vsrcal);
+          __m256i vsignr = _mm256_sign_epi16(vplusone, vsrcar);
+          __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignl, vsignr), vbaseoffset);
           __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
           veoffsets = _mm256_slli_epi16(veoffsets, 8);
           veoffsets = _mm256_srai_epi16(veoffsets, 8);
-
+          cm1 = resLine[x + 15];  // load last pixel for next loop
           vsrca = _mm256_add_epi16(vsrca, veoffsets);
           vsrca = _mm256_min_epi16(_mm256_max_epi16(vsrca, vzero), vibdimax);
 
           _mm256_storeu_si256((__m256i*)&resLine[x], vsrca);
         }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
         resLine += resStride;
       }
+    } else {
+      // normal avx2 path
+      __m256i vbaseoffset = _mm256_set1_epi16(2);
+      __m256i vplusone = _mm256_set1_epi16(1);
+      __m256i vzero = _mm256_set1_epi8(0);
+      __m256i vibdimax = _mm256_set1_epi16(clpRng.max());
+      __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
+      for (y = 0; y < height; y++) {
+        Pel cm1;
+        if (isLeftAvail)
+          cm1 = leftLine[y];
+        else
+          cm1 = resLine[startX - 1];
+        for (x = startX; x < endX - 15; x += 16) {
+          __m256i vsrca, vsrcal, vsrcar;
+          vsrca = _mm256_loadu_si256((__m256i*)&resLine[x]);
+          vsrcal = _mm256_loadu_si256((__m256i*)&resLine[x - 1]);
+          vsrcar = _mm256_loadu_si256((__m256i*)&resLine[x + 1]);
+          vsrcal = _mm256_insert_epi16(vsrcal, cm1, 0);
+          vsrcal = _mm256_sub_epi16(vsrca, vsrcal);
+          vsrcar = _mm256_sub_epi16(vsrca, vsrcar);
+          __m256i vsignl = _mm256_sign_epi16(vplusone, vsrcal);
+          __m256i vsignr = _mm256_sign_epi16(vplusone, vsrcar);
+          __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignl, vsignr), vbaseoffset);
+          __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+          veoffsets = _mm256_slli_epi16(veoffsets, 8);
+          veoffsets = _mm256_srai_epi16(veoffsets, 8);
+          cm1 = resLine[x + 15];  // load last pixel for next loop
+          vsrca = _mm256_add_epi16(vsrca, veoffsets);
+          vsrca = _mm256_min_epi16(_mm256_max_epi16(vsrca, vzero), vibdimax);
+
+          _mm256_storeu_si256((__m256i*)&resLine[x], vsrca);
+        }
+        if (x < endX) {
+          Pel tmp[16];
+          __m256i vsrca, vsrcal, vsrcar;
+          vsrca = _mm256_loadu_si256((__m256i*)&resLine[x]);
+          vsrcal = _mm256_loadu_si256((__m256i*)&resLine[x - 1]);
+          vsrcar = _mm256_loadu_si256((__m256i*)&resLine[x + 1]);
+          vsrcal = _mm256_insert_epi16(vsrcal, cm1, 0);
+          vsrcal = _mm256_sub_epi16(vsrca, vsrcal);
+          vsrcar = _mm256_sub_epi16(vsrca, vsrcar);
+          __m256i vsignl = _mm256_sign_epi16(vplusone, vsrcal);
+          __m256i vsignr = _mm256_sign_epi16(vplusone, vsrcar);
+          __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignl, vsignr), vbaseoffset);
+          __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+          veoffsets = _mm256_slli_epi16(veoffsets, 8);
+          veoffsets = _mm256_srai_epi16(veoffsets, 8);
+          vsrca = _mm256_add_epi16(vsrca, veoffsets);
+          vsrca = _mm256_min_epi16(_mm256_max_epi16(vsrca, vzero), vibdimax);
+
+          _mm256_storeu_si256((__m256i*)&tmp[0], vsrca);
+          int base = x;
+          for (; x < endX; x++) {
+            resLine[x] = tmp[x - base];
+          }
+        }
+        resLine += resStride;
+      }
+    }
+    _mm256_zeroupper();
+  } else
+#  endif
+  {
+    __m128i vsrca, vsrcal, vsrcar;
+    __m128i vbaseoffset = _mm_set1_epi16(2);
+    __m128i vplusone = _mm_set1_epi16(1);
+    __m128i vzero = _mm_set1_epi8(0);
+    __m128i vibdimax = _mm_set1_epi16(clpRng.max());
+    __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
+    // sse simd
+    for (y = 0; y < height; y++) {
+      Pel cm1;
+      if (isLeftAvail)
+        cm1 = leftLine[y];
+      else
+        cm1 = resLine[startX - 1];
+      for (x = startX; x < endX - 7; x += 8) {
+        vsrca = _mm_loadu_si128((__m128i*)&resLine[x]);
+        vsrcal = _mm_loadu_si128((__m128i*)&resLine[x - 1]);
+        vsrcar = _mm_loadu_si128((__m128i*)&resLine[x + 1]);
+        vsrcal = _mm_insert_epi16(vsrcal, cm1, 0);
+        vsrcal = _mm_sub_epi16(vsrca, vsrcal);
+        vsrcar = _mm_sub_epi16(vsrca, vsrcar);
+        __m128i vsignl = _mm_sign_epi16(vplusone, vsrcal);
+        __m128i vsignr = _mm_sign_epi16(vplusone, vsrcar);
+        __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignl, vsignr), vbaseoffset);
+        __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+        veoffsets = _mm_slli_epi16(veoffsets, 8);
+        veoffsets = _mm_srai_epi16(veoffsets, 8);
+        cm1 = resLine[x + 7];
+        vsrca = _mm_add_epi16(vsrca, veoffsets);
+        vsrca = _mm_min_epi16(_mm_max_epi16(vsrca, vzero), vibdimax);
+        _mm_storeu_si128((__m128i*)&resLine[x], vsrca);
+      }
+      if (x < endX) {
+        Pel tmp[8];
+        int base = x;
+        vsrca = _mm_loadu_si128((__m128i*)&resLine[x]);
+        vsrcal = _mm_loadu_si128((__m128i*)&resLine[x - 1]);
+        vsrcar = _mm_loadu_si128((__m128i*)&resLine[x + 1]);
+        vsrcal = _mm_insert_epi16(vsrcal, cm1, 0);
+        vsrcal = _mm_sub_epi16(vsrca, vsrcal);
+        vsrcar = _mm_sub_epi16(vsrca, vsrcar);
+        __m128i vsignl = _mm_sign_epi16(vplusone, vsrcal);
+        __m128i vsignr = _mm_sign_epi16(vplusone, vsrcar);
+        __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignl, vsignr), vbaseoffset);
+        __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+        veoffsets = _mm_slli_epi16(veoffsets, 8);
+        veoffsets = _mm_srai_epi16(veoffsets, 8);
+        vsrca = _mm_add_epi16(vsrca, veoffsets);
+        vsrca = _mm_min_epi16(_mm_max_epi16(vsrca, vzero), vibdimax);
+        _mm_storeu_si128((__m128i*)&tmp[0], vsrca);
+        for (; x < endX; x++) {
+          resLine[x] = tmp[x - base];
+        }
+      }
+      resLine += resStride;
+    }
+  }
+}
+
+template <X86_VEXT vext>
+static void processEO90_SIMD(Pel* resLine, ptrdiff_t resStride, int width, int height, const int* offset,
+                             const ClpRng& clpRng, bool isAboveAvail, bool isBottomAvail, const Pel* topLine) {
+  int16_t signDownLine[128];
+  int startY = isAboveAvail ? 0 : 1;
+  int endY = isBottomAvail ? height : (height - 1);
+  int x, y;
+  int8_t p_eo_offsets[16] = {0};
+  for (int i = 0; i < SAO_EO_NUM_CATEGORIES; i++) {
+    p_eo_offsets[i] = offset[i];
+  }
+  if (!isAboveAvail) {
+    resLine += resStride;
+  }
+  const Pel* srcLineAbove = resLine - resStride;
+  if (isAboveAvail) srcLineAbove = topLine;
+#  ifdef USE_AVX2
+  if (vext >= AVX2) {
+    __m256i vbaseoffset = _mm256_set1_epi16(2);
+    __m256i vplusone = _mm256_set1_epi16(1);
+    __m256i vzero = _mm256_set1_epi8(0);
+    __m256i vibdimax = _mm256_set1_epi16(clpRng.max());
+    __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
+    for (x = 0; x < width; x += 16) {
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i above = _mm256_loadu_si256((__m256i*)&srcLineAbove[x]);
+      curr = _mm256_sub_epi16(above, curr);
+      curr = _mm256_sign_epi16(vplusone, curr);
+      _mm256_storeu_si256((__m256i*)&signDownLine[x], curr);
+    }
+    for (y = startY; y < endY; y++) {
+      const Pel* srcLineBelow = resLine + resStride;
+      for (x = 0; x < width; x += 16) {
+        __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+        __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x]);
+        __m256i signDown = _mm256_loadu_si256((__m256i*)&signDownLine[x]);
+        below = _mm256_sub_epi16(curr, below);
+        signDown = _mm256_sub_epi16(vbaseoffset, signDown);  // 2 - last signdown
+        below = _mm256_sign_epi16(vplusone, below);          // new signDown
+        signDown = _mm256_add_epi16(signDown, below);
+        __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, signDown);
+        veoffsets = _mm256_slli_epi16(veoffsets, 8);
+        veoffsets = _mm256_srai_epi16(veoffsets, 8);
+        _mm256_storeu_si256((__m256i*)&signDownLine[x], below);
+        curr = _mm256_add_epi16(curr, veoffsets);
+        curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+        _mm256_storeu_si256((__m256i*)&resLine[x], curr);
+      }
+      resLine += resStride;
+    }
+    _mm256_zeroupper();
+  } else
+#  endif
+  {
+    __m128i vbaseoffset = _mm_set1_epi16(2);
+    __m128i vplusone = _mm_set1_epi16(1);
+    __m128i vzero = _mm_set1_epi8(0);
+    __m128i vibdimax = _mm_set1_epi16(clpRng.max());
+    __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
+    for (x = 0; x < width; x += 8) {
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i above = _mm_loadu_si128((__m128i*)&srcLineAbove[x]);
+      curr = _mm_sub_epi16(above, curr);
+      curr = _mm_sign_epi16(vplusone, curr);
+      _mm_storeu_si128((__m128i*)&signDownLine[x], curr);
+    }
+    for (y = startY; y < endY; y++) {
+      const Pel* srcLineBelow = resLine + resStride;
+      for (x = 0; x < width; x += 8) {
+        __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+        __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x]);
+        __m128i signDown = _mm_loadu_si128((__m128i*)&signDownLine[x]);
+        below = _mm_sub_epi16(curr, below);
+        signDown = _mm_sub_epi16(vbaseoffset, signDown);  // 2 - last signdown
+        below = _mm_sign_epi16(vplusone, below);          // new signDown
+        signDown = _mm_add_epi16(signDown, below);
+        __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, signDown);
+        veoffsets = _mm_slli_epi16(veoffsets, 8);
+        veoffsets = _mm_srai_epi16(veoffsets, 8);
+        _mm_storeu_si128((__m128i*)&signDownLine[x], below);
+        curr = _mm_add_epi16(curr, veoffsets);
+        curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+        _mm_storeu_si128((__m128i*)&resLine[x], curr);
+      }
+      resLine += resStride;
+    }
+  }
+}
+
+template <X86_VEXT vext>
+static void processEO135_SIMD(Pel* resLine, ptrdiff_t resStride, int width, int height, const int* offset,
+                              const ClpRng& clpRng, bool isLeftAvail, bool isRightAvail, bool isAboveLeftAvail,
+                              bool isAboveAvail, bool isBelowAvail, bool isBelowRightAvail, const Pel* topLine,
+                              const Pel* leftLine) {
+  int8_t p_eo_offsets[16] = {0};
+  for (int i = 0; i < SAO_EO_NUM_CATEGORIES; i++) {
+    p_eo_offsets[i] = offset[i];
+  }
+  offset += 2;
+  int16_t *signUpLine, *signDownLine, *signTmpLine;
+  int16_t aSignUpLine[128 + 2], aSignDownLine[128 + 2];
+  signUpLine = &aSignUpLine[0];
+  signDownLine = &aSignDownLine[0];
+
+  int startX = isLeftAvail ? 0 : 1;
+  int endX = isRightAvail ? width : (width - 1);
+  int x, y;
+  // prepare 2nd line's upper sign
+  const Pel* srcLineBelow = resLine + resStride;
+  x = startX;
+  if (isLeftAvail) {
+    signUpLine[x] = (int16_t)sgn(srcLineBelow[x] - leftLine[0]);
+    x++;
+  }
+#  ifdef USE_AVX2
+  if (vext >= AVX2) {
+    __m256i vbaseoffset = _mm256_set1_epi16(2);
+    __m256i vplusone = _mm256_set1_epi16(1);
+    __m256i vzero = _mm256_set1_epi8(0);
+    __m256i vibdimax = _mm256_set1_epi16(clpRng.max());
+    __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
+
+    for (; x < endX + 1; x += 16) {
+      __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x]);
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x - 1]);
+      below = _mm256_sub_epi16(below, curr);
+      below = _mm256_sign_epi16(vplusone, below);
+      _mm256_storeu_si256((__m256i*)&signUpLine[x], below);
+    }
+    // 1st line
+    const Pel* srcLineAbove = resLine - resStride;
+    int firstLineStartX = isAboveLeftAvail ? 0 : 1;
+    int firstLineEndX = isAboveAvail ? endX : 1;
+    if (isAboveAvail) srcLineAbove = topLine;
+    for (x = firstLineStartX; x < firstLineEndX - 15; x += 16) {
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i above = _mm256_loadu_si256((__m256i*)&srcLineAbove[x - 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x + 1]);
+      above = _mm256_sub_epi16(curr, above);
+      signUp = _mm256_sub_epi16(vbaseoffset, signUp);
+      above = _mm256_sign_epi16(vplusone, above);
+      __m256i vsign = _mm256_add_epi16(signUp, above);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&resLine[x], curr);
+    }
+    if (x < firstLineEndX) {
+      Pel tmpData[16];
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i above = _mm256_loadu_si256((__m256i*)&srcLineAbove[x - 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x + 1]);
+      above = _mm256_sub_epi16(curr, above);
+      signUp = _mm256_sub_epi16(vbaseoffset, signUp);
+      above = _mm256_sign_epi16(vplusone, above);
+      __m256i vsign = _mm256_add_epi16(signUp, above);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < firstLineEndX; x++) resLine[x] = tmpData[x - base];
+    }
+    resLine += resStride;
+    // middle lines
+    for (y = 1; y < height - 1; y++) {
+      srcLineBelow = resLine + resStride;
+      for (x = startX; x < endX - 15; x += 16) {
+        __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+        __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x + 1]);
+        __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+        below = _mm256_sub_epi16(curr, below);
+        signUp = _mm256_add_epi16(signUp, vbaseoffset);
+        below = _mm256_sign_epi16(vplusone, below);
+        __m256i vsign = _mm256_add_epi16(signUp, below);
+        __m256i next = _mm256_sub_epi16(vzero, below);
+        __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+        _mm256_storeu_si256((__m256i*)&signDownLine[x + 1], next);
+        veoffsets = _mm256_slli_epi16(veoffsets, 8);
+        veoffsets = _mm256_srai_epi16(veoffsets, 8);
+        curr = _mm256_add_epi16(curr, veoffsets);
+        curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+        _mm256_storeu_si256((__m256i*)&resLine[x], curr);
+      }
+      if (x < endX) {
+        Pel tmpData[16];
+        __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+        __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x + 1]);
+        __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+        below = _mm256_sub_epi16(curr, below);
+        signUp = _mm256_add_epi16(signUp, vbaseoffset);
+        below = _mm256_sign_epi16(vplusone, below);
+        __m256i vsign = _mm256_add_epi16(signUp, below);
+        __m256i next = _mm256_sub_epi16(vzero, below);
+        __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+        _mm256_storeu_si256((__m256i*)&signDownLine[x + 1], next);
+        veoffsets = _mm256_slli_epi16(veoffsets, 8);
+        veoffsets = _mm256_srai_epi16(veoffsets, 8);
+        curr = _mm256_add_epi16(curr, veoffsets);
+        curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+        _mm256_storeu_si256((__m256i*)&tmpData[0], curr);
+        int base = x;
+        for (; x < endX; x++) resLine[x] = tmpData[x - base];
+      }
+      if (isLeftAvail)
+        signDownLine[startX] = (int16_t)sgn(srcLineBelow[startX] - leftLine[y]);
+      else
+        signDownLine[startX] = (int16_t)sgn(srcLineBelow[startX] - resLine[startX - 1]);
+      signTmpLine = signUpLine;
+      signUpLine = signDownLine;
+      signDownLine = signTmpLine;
+      resLine += resStride;
+    }
+
+    // last line
+    srcLineBelow = resLine + resStride;
+    int lastLineStartX = isBelowAvail ? startX : (width - 1);
+    int lastLineEndX = isBelowRightAvail ? width : (width - 1);
+    for (x = lastLineStartX; x < lastLineEndX - 15; x += 16) {
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x + 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+      below = _mm256_sub_epi16(curr, below);
+      signUp = _mm256_add_epi16(signUp, vbaseoffset);
+      below = _mm256_sign_epi16(vplusone, below);
+      __m256i vsign = _mm256_add_epi16(signUp, below);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&resLine[x], curr);
+    }
+    if (x < lastLineEndX) {
+      Pel tmpData[16];
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x + 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+      below = _mm256_sub_epi16(curr, below);
+      signUp = _mm256_add_epi16(signUp, vbaseoffset);
+      below = _mm256_sign_epi16(vplusone, below);
+      __m256i vsign = _mm256_add_epi16(signUp, below);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < lastLineEndX; x++) resLine[x] = tmpData[x - base];
     }
   } else
 #  endif
   {
-    __m128i vsrca, vsrcat, vsrcab;
     __m128i vbaseoffset = _mm_set1_epi16(2);
     __m128i vplusone = _mm_set1_epi16(1);
     __m128i vzero = _mm_set1_epi8(0);
-    __m128i vibdimax = _mm_set1_epi16((1 << channelBitDepth) - 1);
+    __m128i vibdimax = _mm_set1_epi16(clpRng.max());
     __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
 
-    if (isCtuCrossedByVirtualBoundaries) {
-      for (y = startY; y < endY; y++) {
-        if (!isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          for (x = 0; x < width; x += 8) {
-            vsrca = _mm_loadu_si128((__m128i*)&srcLine[x]);
-            vsrcat = _mm_loadu_si128((__m128i*)&srcLineAbove[x]);
-            vsrcab = _mm_loadu_si128((__m128i*)&srcLineBelow[x]);
-            vsrcat = _mm_sub_epi16(vsrca, vsrcat);
-            vsrcab = _mm_sub_epi16(vsrca, vsrcab);
-            __m128i vsignt = _mm_sign_epi16(vplusone, vsrcat);
-            __m128i vsignb = _mm_sign_epi16(vplusone, vsrcab);
-            __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignt, vsignb), vbaseoffset);
-            __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm_slli_epi16(veoffsets, 8);
-            veoffsets = _mm_srai_epi16(veoffsets, 8);
+    for (; x < endX + 1; x += 8) {
+      __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x]);
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x - 1]);
+      below = _mm_sub_epi16(below, curr);
+      below = _mm_sign_epi16(vplusone, below);
+      _mm_storeu_si128((__m128i*)&signUpLine[x], below);
+    }
+    // 1st line
+    const Pel* srcLineAbove = resLine - resStride;
+    int firstLineStartX = isAboveLeftAvail ? 0 : 1;
+    int firstLineEndX = isAboveAvail ? endX : 1;
+    if (isAboveAvail) srcLineAbove = topLine;
+    for (x = firstLineStartX; x < firstLineEndX - 7; x += 8) {
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i above = _mm_loadu_si128((__m128i*)&srcLineAbove[x - 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x + 1]);
+      above = _mm_sub_epi16(curr, above);
+      signUp = _mm_sub_epi16(vbaseoffset, signUp);
+      above = _mm_sign_epi16(vplusone, above);
+      __m128i vsign = _mm_add_epi16(signUp, above);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
 
-            vsrca = _mm_add_epi16(vsrca, veoffsets);
-            vsrca = _mm_min_epi16(_mm_max_epi16(vsrca, vzero), vibdimax);
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&resLine[x], curr);
+    }
+    if (x < firstLineEndX) {
+      Pel tmpData[8];
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i above = _mm_loadu_si128((__m128i*)&srcLineAbove[x - 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x + 1]);
+      above = _mm_sub_epi16(curr, above);
+      signUp = _mm_sub_epi16(vbaseoffset, signUp);
+      above = _mm_sign_epi16(vplusone, above);
+      __m128i vsign = _mm_add_epi16(signUp, above);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
 
-            _mm_store_si128((__m128i*)&resLine[x], vsrca);
-          }
-        }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
-        resLine += resStride;
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < firstLineEndX; x++) resLine[x] = tmpData[x - base];
+    }
+    resLine += resStride;
+    // middle lines
+    for (y = 1; y < height - 1; y++) {
+      srcLineBelow = resLine + resStride;
+      for (x = startX; x < endX - 7; x += 8) {
+        __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+        __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x + 1]);
+        __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+        below = _mm_sub_epi16(curr, below);
+        signUp = _mm_add_epi16(signUp, vbaseoffset);
+        below = _mm_sign_epi16(vplusone, below);
+        __m128i vsign = _mm_add_epi16(signUp, below);
+        __m128i next = _mm_sub_epi16(vzero, below);
+        __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+        _mm_storeu_si128((__m128i*)&signDownLine[x + 1], next);
+        veoffsets = _mm_slli_epi16(veoffsets, 8);
+        veoffsets = _mm_srai_epi16(veoffsets, 8);
+        curr = _mm_add_epi16(curr, veoffsets);
+        curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+        _mm_storeu_si128((__m128i*)&resLine[x], curr);
       }
-    } else {
-      for (y = startY; y < endY; y++) {
-        for (x = 0; x < width; x += 8) {
-          vsrca = _mm_loadu_si128((__m128i*)&srcLine[x]);
-          vsrcat = _mm_loadu_si128((__m128i*)&srcLineAbove[x]);
-          vsrcab = _mm_loadu_si128((__m128i*)&srcLineBelow[x]);
-          vsrcat = _mm_sub_epi16(vsrca, vsrcat);
-          vsrcab = _mm_sub_epi16(vsrca, vsrcab);
-          __m128i vsignt = _mm_sign_epi16(vplusone, vsrcat);
-          __m128i vsignb = _mm_sign_epi16(vplusone, vsrcab);
-          __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignt, vsignb), vbaseoffset);
-          __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
-          veoffsets = _mm_slli_epi16(veoffsets, 8);
-          veoffsets = _mm_srai_epi16(veoffsets, 8);
-
-          vsrca = _mm_add_epi16(vsrca, veoffsets);
-          vsrca = _mm_min_epi16(_mm_max_epi16(vsrca, vzero), vibdimax);
-          _mm_store_si128((__m128i*)&resLine[x], vsrca);
-        }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
-        resLine += resStride;
+      if (x < endX) {
+        Pel tmpData[8];
+        __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+        __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x + 1]);
+        __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+        below = _mm_sub_epi16(curr, below);
+        signUp = _mm_add_epi16(signUp, vbaseoffset);
+        below = _mm_sign_epi16(vplusone, below);
+        __m128i vsign = _mm_add_epi16(signUp, below);
+        __m128i next = _mm_sub_epi16(vzero, below);
+        __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+        _mm_storeu_si128((__m128i*)&signDownLine[x + 1], next);
+        veoffsets = _mm_slli_epi16(veoffsets, 8);
+        veoffsets = _mm_srai_epi16(veoffsets, 8);
+        curr = _mm_add_epi16(curr, veoffsets);
+        curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+        _mm_storeu_si128((__m128i*)&tmpData[0], curr);
+        int base = x;
+        for (; x < endX; x++) resLine[x] = tmpData[x - base];
       }
+      if (isLeftAvail)
+        signDownLine[startX] = (int16_t)sgn(srcLineBelow[startX] - leftLine[y]);
+      else
+        signDownLine[startX] = (int16_t)sgn(srcLineBelow[startX] - resLine[startX - 1]);
+      signTmpLine = signUpLine;
+      signUpLine = signDownLine;
+      signDownLine = signTmpLine;
+      resLine += resStride;
+    }
+
+    // last line
+    srcLineBelow = resLine + resStride;
+    int lastLineStartX = isBelowAvail ? startX : (width - 1);
+    int lastLineEndX = isBelowRightAvail ? width : (width - 1);
+    for (x = lastLineStartX; x < lastLineEndX - 7; x += 8) {
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x + 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+      below = _mm_sub_epi16(curr, below);
+      signUp = _mm_add_epi16(signUp, vbaseoffset);
+      below = _mm_sign_epi16(vplusone, below);
+      __m128i vsign = _mm_add_epi16(signUp, below);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&resLine[x], curr);
+    }
+    if (x < lastLineEndX) {
+      Pel tmpData[8];
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x + 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+      below = _mm_sub_epi16(curr, below);
+      signUp = _mm_add_epi16(signUp, vbaseoffset);
+      below = _mm_sign_epi16(vplusone, below);
+      __m128i vsign = _mm_add_epi16(signUp, below);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < lastLineEndX; x++) resLine[x] = tmpData[x - base];
     }
   }
 }
 
 template <X86_VEXT vext>
-static void offsetBlock_SIMD_SAO_TYPE_EO_135(
-    const int channelBitDepth, const ClpRng& clpRng, int* offset, const Pel* srcBlk, Pel* resBlk, ptrdiff_t srcStride,
-    ptrdiff_t resStride, int width, int height, bool isLeftAvail, bool isRightAvail, bool isAboveAvail,
-    bool isBelowAvail, bool isAboveLeftAvail, bool isAboveRightAvail, bool isBelowLeftAvail, bool isBelowRightAvail,
-    std::vector<int8_t>* m_signLineBuf1, std::vector<int8_t>* m_signLineBuf2, bool isCtuCrossedByVirtualBoundaries,
-    int horVirBndryPos[], int verVirBndryPos[], int numHorVirBndry, int numVerVirBndry, uint16_t bndmask[MAX_CU_SIZE]) {
-  const Pel* srcLine = srcBlk;
-  Pel* resLine = resBlk;
+static void processEO45_SIMD(Pel* resLine, ptrdiff_t resStride, int width, int height, const int* offset,
+                             const ClpRng& clpRng, bool isLeftAvail, bool isRightAvail, bool isAboveRightAvail,
+                             bool isAboveAvail, bool isBelowAvail, bool isBelowLeftAvail, const Pel* topLine,
+                             const Pel* leftLine) {
+  int8_t p_eo_offsets[16] = {0};
+  for (int i = 0; i < SAO_EO_NUM_CATEGORIES; i++) {
+    p_eo_offsets[i] = offset[i];
+  }
+  offset += 2;
+  int16_t aSignUpLine[128 + 2];
+  int16_t* signUpLine = &aSignUpLine[1];
+  int x, y;
+  int startX = isLeftAvail ? 0 : 1;
+  int endX = isRightAvail ? width : (width - 1);
 
-  int x, y, startX, startY, endX, endY, edgeType;
-  int firstLineStartX, firstLineEndX, lastLineStartX, lastLineEndX;
-  int8_t signDown;
-
-  if (isLeftAvail && isRightAvail && isAboveLeftAvail && isBelowRightAvail) {
-    int8_t p_eo_offsets[16] = {0};
-    for (int i = 0; i < SAO_EO_NUM_CATEGORIES; i++) {
-      p_eo_offsets[i] = offset[i];
-    }
-    const Pel* srcLineAbove = srcLine - srcStride;
-    const Pel* srcLineBelow = srcLine + srcStride;
-    startY = 0;
-    if (!isAboveAvail) {
-      startY = 1;
-      srcLineAbove = srcLine;
-      srcLine += srcStride;
-      resLine += resStride;
-      srcLineBelow = srcLine + srcStride;
-    }
-    endY = height;
-    if (!isBelowAvail) {
-      endY = height - 1;
-    }
+  // prepare 2nd line upper sign
+  const Pel* srcLineBelow = resLine + resStride;
+  x = startX - 1;
+  if (isLeftAvail) {
+    signUpLine[x] = (int16_t)sgn(leftLine[1] - resLine[x + 1]);
+    x++;
+  }
 #  ifdef USE_AVX2
-    // AVX2
-    if ((width > 8) && (vext >= AVX2)) {
-      __m256i vsrca, vsrcat, vsrcab, virBmask;
+  if (vext >= AVX2) {
+    __m256i vbaseoffset = _mm256_set1_epi16(2);
+    __m256i vplusone = _mm256_set1_epi16(1);
+    __m256i vzero = _mm256_set1_epi8(0);
+    __m256i vibdimax = _mm256_set1_epi16(clpRng.max());
+    __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
+    for (; x < endX; x += 16) {
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x + 1]);
+      __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x]);
+      below = _mm256_sub_epi16(below, curr);
+      below = _mm256_sign_epi16(vplusone, below);
+      _mm256_storeu_si256((__m256i*)&signUpLine[x], below);
+    }
+    // for (; x< endX; x++)
+    //{
+    //  signUpLine[x] = (int16_t)sgn(srcLineBelow[x] - resLine[x+1]);
+    //}
+    // first line
+    const Pel* srcLineAbove = resLine - resStride;
+    int firstLineStartX = isAboveAvail ? startX : (width - 1);
+    int firstLineEndX = isAboveRightAvail ? width : (width - 1);
+    if (isAboveAvail) srcLineAbove = topLine;
+    for (x = firstLineStartX; x < firstLineEndX - 15; x += 16) {
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i above = _mm256_loadu_si256((__m256i*)&srcLineAbove[x + 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x - 1]);
+      above = _mm256_sub_epi16(curr, above);
+      signUp = _mm256_sub_epi16(vbaseoffset, signUp);  // 2 - signUpLine[x-1];
+      above = _mm256_sign_epi16(vplusone, above);      // sgn(resLine[x] - srcLineAbove[x+1])
+      __m256i vsign = _mm256_add_epi16(above, signUp);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&resLine[x], curr);
+    }
+    if (x < firstLineEndX) {
+      Pel tmpData[16];
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i above = _mm256_loadu_si256((__m256i*)&srcLineAbove[x + 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x - 1]);
+      above = _mm256_sub_epi16(curr, above);
+      signUp = _mm256_sub_epi16(vbaseoffset, signUp);  // 2 - signUpLine[x-1];
+      above = _mm256_sign_epi16(vplusone, above);      // sgn(resLine[x] - srcLineAbove[x+1])
+      __m256i vsign = _mm256_add_epi16(above, signUp);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < firstLineEndX; x++) resLine[x] = tmpData[x - base];
+    }
+    // for(x= firstLineStartX; x< firstLineEndX; x++)
+    //{
+    //  int edgeType = sgn(resLine[x] - srcLineAbove[x+1]) - signUpLine[x-1];
+    //  resLine[x] = ClipPel<int>(resLine[x] + offset[edgeType], clpRng);
+    //}
+    resLine += resStride;
 
-      __m256i vbaseoffset = _mm256_set1_epi16(2);
-      __m256i vplusone = _mm256_set1_epi16(1);
-      __m256i vzero = _mm256_set1_epi8(0);
-      __m256i vibdimax = _mm256_set1_epi16((1 << channelBitDepth) - 1);
-      __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
-      const Pel* srcLineBelow = srcLine + srcStride;
-
-      for (y = startY; y < endY; y++) {
-        if (!isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          for (x = 0; x < width; x += 16) {
-            vsrca = _mm256_loadu_si256((__m256i*)&srcLine[x]);
-            vsrcat = _mm256_loadu_si256((__m256i*)&srcLineAbove[x - 1]);
-            vsrcab = _mm256_loadu_si256((__m256i*)&srcLineBelow[x + 1]);
-            virBmask = _mm256_loadu_si256((__m256i*)&bndmask[x]);
-            vsrcat = _mm256_sub_epi16(vsrca, vsrcat);
-            vsrcab = _mm256_sub_epi16(vsrca, vsrcab);
-            __m256i vsignt = _mm256_sign_epi16(vplusone, vsrcat);
-            __m256i vsignb = _mm256_sign_epi16(vplusone, vsrcab);
-            __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignt, vsignb), vbaseoffset);
-            __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm256_slli_epi16(veoffsets, 8);
-            veoffsets = _mm256_srai_epi16(veoffsets, 8);
-
-            vsrcat = _mm256_add_epi16(vsrca, veoffsets);
-            vsrcat = _mm256_min_epi16(_mm256_max_epi16(vsrcat, vzero), vibdimax);
-
-            vsrcab = _mm256_blendv_epi8(vsrcat, vsrca, virBmask);
-
-            _mm256_storeu_si256((__m256i*)&resLine[x], vsrcab);
-          }
-        }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
-        resLine += resStride;
+    // middle lines
+    for (y = 1; y < height - 1; y++) {
+      srcLineBelow = resLine + resStride;
+      x = startX;
+      if (isLeftAvail) {
+        int signDown = (int16_t)sgn(resLine[x] - leftLine[y + 1]);
+        int edgeType = signDown + signUpLine[x];
+        resLine[x] = ClipPel<int>(resLine[x] + offset[edgeType], clpRng);
+        signUpLine[x - 1] = -signDown;
+        x++;
       }
-    } else
+      for (; x < endX - 15; x += 16) {
+        __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+        __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x - 1]);
+        __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+        __m256i signDown = _mm256_sub_epi16(curr, below);
+        signUp = _mm256_add_epi16(signUp, vbaseoffset);
+        signDown = _mm256_sign_epi16(vplusone, signDown);
+        __m256i vsign = _mm256_add_epi16(signUp, signDown);
+        below = _mm256_sub_epi16(vzero, signDown);  // -signDown
+        __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+        _mm256_storeu_si256((__m256i*)&signUpLine[x - 1], below);
+        veoffsets = _mm256_slli_epi16(veoffsets, 8);
+        veoffsets = _mm256_srai_epi16(veoffsets, 8);
+        curr = _mm256_add_epi16(curr, veoffsets);
+        curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+        _mm256_storeu_si256((__m256i*)&resLine[x], curr);
+      }
+      if (x < endX) {
+        Pel tmpData[16];
+        __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+        __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x - 1]);
+        __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+        __m256i signDown = _mm256_sub_epi16(curr, below);
+        signUp = _mm256_add_epi16(signUp, vbaseoffset);
+        signDown = _mm256_sign_epi16(vplusone, signDown);
+        __m256i vsign = _mm256_add_epi16(signUp, signDown);
+        below = _mm256_sub_epi16(vzero, signDown);  // -signDown
+        __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+        _mm256_storeu_si256((__m256i*)&signUpLine[x - 1], below);
+        veoffsets = _mm256_slli_epi16(veoffsets, 8);
+        veoffsets = _mm256_srai_epi16(veoffsets, 8);
+        curr = _mm256_add_epi16(curr, veoffsets);
+        curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+        _mm256_storeu_si256((__m256i*)&tmpData[0], curr);
+        int base = x;
+        for (; x < endX; x++) resLine[x] = tmpData[x - base];
+      }
+      // for(; x< endX; x++)
+      //{
+      //  int signDown =  (int16_t)sgn(resLine[x] - srcLineBelow[x-1]);
+      //  int edgeType =  signDown + signUpLine[x];
+      //  resLine[x] = ClipPel<int>(resLine[x] + offset[edgeType], clpRng);
+      //  signUpLine[x-1] = -signDown;
+      //}
+      signUpLine[endX - 1] = (int16_t)sgn(srcLineBelow[endX - 1] - resLine[endX]);
+      resLine += resStride;
+    }
+    // last line
+    srcLineBelow = resLine + resStride;
+    int lastLineStartX = isBelowLeftAvail ? 0 : 1;
+    int lastLineEndX = isBelowAvail ? endX : 1;
+    // below left is in reconstruction buffer, not line buffer
+    for (x = lastLineStartX; x < lastLineEndX - 15; x += 16) {
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x - 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+      __m256i signDown = _mm256_sub_epi16(curr, below);
+      signUp = _mm256_add_epi16(signUp, vbaseoffset);
+      signDown = _mm256_sign_epi16(vplusone, signDown);
+      __m256i vsign = _mm256_add_epi16(signUp, signDown);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&resLine[x], curr);
+    }
+    if (x < lastLineEndX) {
+      Pel tmpData[16];
+      __m256i curr = _mm256_loadu_si256((__m256i*)&resLine[x]);
+      __m256i below = _mm256_loadu_si256((__m256i*)&srcLineBelow[x - 1]);
+      __m256i signUp = _mm256_loadu_si256((__m256i*)&signUpLine[x]);
+      __m256i signDown = _mm256_sub_epi16(curr, below);
+      signUp = _mm256_add_epi16(signUp, vbaseoffset);
+      signDown = _mm256_sign_epi16(vplusone, signDown);
+      __m256i vsign = _mm256_add_epi16(signUp, signDown);
+      __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm256_slli_epi16(veoffsets, 8);
+      veoffsets = _mm256_srai_epi16(veoffsets, 8);
+      curr = _mm256_add_epi16(curr, veoffsets);
+      curr = _mm256_min_epi16(_mm256_max_epi16(curr, vzero), vibdimax);
+      _mm256_storeu_si256((__m256i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < lastLineEndX; x++) resLine[x] = tmpData[x - base];
+    }
+    // for(x = lastLineStartX; x< lastLineEndX; x++)
+    //{
+    //  int edgeType = sgn(resLine[x] - srcLineBelow[x-1]) + signUpLine[x];
+    //  resLine[x] = ClipPel<int>(resLine[x] + offset[edgeType], clpRng);
+    //}
+  } else
 #  endif
-    {
-      __m128i vsrca, vsrcat, vsrcab, virBmask;
-      __m128i vbaseoffset = _mm_set1_epi16(2);
-      __m128i vplusone = _mm_set1_epi16(1);
-      __m128i vzero = _mm_set1_epi8(0);
-      __m128i vibdimax = _mm_set1_epi16((1 << channelBitDepth) - 1);
-      __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
-
-      for (y = startY; y < endY; y++) {
-        if (!isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          for (x = 0; x < width; x += 8) {
-            vsrca = _mm_loadu_si128((__m128i*)&srcLine[x]);
-            vsrcat = _mm_loadu_si128((__m128i*)&srcLineAbove[x - 1]);
-            vsrcab = _mm_loadu_si128((__m128i*)&srcLineBelow[x + 1]);
-            virBmask = _mm_loadu_si128((__m128i*)&bndmask[x]);
-            vsrcat = _mm_sub_epi16(vsrca, vsrcat);
-            vsrcab = _mm_sub_epi16(vsrca, vsrcab);
-            __m128i vsignt = _mm_sign_epi16(vplusone, vsrcat);
-            __m128i vsignb = _mm_sign_epi16(vplusone, vsrcab);
-            __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignt, vsignb), vbaseoffset);
-            __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm_slli_epi16(veoffsets, 8);
-            veoffsets = _mm_srai_epi16(veoffsets, 8);
-
-            vsrcat = _mm_add_epi16(vsrca, veoffsets);
-            vsrcat = _mm_min_epi16(_mm_max_epi16(vsrcat, vzero), vibdimax);
-
-            vsrcab = _mm_blendv_epi8(vsrcat, vsrca, virBmask);
-
-            _mm_store_si128((__m128i*)&resLine[x], vsrcab);
-          }
-        }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
-        resLine += resStride;
-      }
+  {
+    __m128i vbaseoffset = _mm_set1_epi16(2);
+    __m128i vplusone = _mm_set1_epi16(1);
+    __m128i vzero = _mm_set1_epi8(0);
+    __m128i vibdimax = _mm_set1_epi16(clpRng.max());
+    __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
+    for (; x < endX; x += 8) {
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x + 1]);
+      __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x]);
+      below = _mm_sub_epi16(below, curr);
+      below = _mm_sign_epi16(vplusone, below);
+      _mm_storeu_si128((__m128i*)&signUpLine[x], below);
     }
-  } else {
-    offset += 2;
-    int8_t *signUpLine, *signDownLine, *signTmpLine;
-
-    signUpLine = &m_signLineBuf1->front();
-    signDownLine = &m_signLineBuf2->front();
-
-    startX = isLeftAvail ? 0 : 1;
-    endX = isRightAvail ? width : (width - 1);
-
-    // prepare 2nd line's upper sign
-    const Pel* srcLineBelow = srcLine + srcStride;
-    for (x = startX; x < endX + 1; x++) {
-      signUpLine[x] = (int8_t)sgn(srcLineBelow[x] - srcLine[x - 1]);
+    // first line
+    const Pel* srcLineAbove = resLine - resStride;
+    int firstLineStartX = isAboveAvail ? startX : (width - 1);
+    int firstLineEndX = isAboveRightAvail ? width : (width - 1);
+    if (isAboveAvail) srcLineAbove = topLine;
+    for (x = firstLineStartX; x < firstLineEndX - 7; x += 8) {
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i above = _mm_loadu_si128((__m128i*)&srcLineAbove[x + 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x - 1]);
+      above = _mm_sub_epi16(curr, above);
+      signUp = _mm_sub_epi16(vbaseoffset, signUp);  // 2 - signUpLine[x-1];
+      above = _mm_sign_epi16(vplusone, above);      // sgn(resLine[x] - srcLineAbove[x+1])
+      __m128i vsign = _mm_add_epi16(above, signUp);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&resLine[x], curr);
     }
-    if (isCtuCrossedByVirtualBoundaries) {
-      // 1st line
-      const Pel* srcLineAbove = srcLine - srcStride;
-      firstLineStartX = isAboveLeftAvail ? 0 : 1;
-      firstLineEndX = isAboveAvail ? endX : 1;
-      if (!isHorProcessDisabled(0, numHorVirBndry, horVirBndryPos)) {
-        for (x = firstLineStartX; x < firstLineEndX; x++) {
-          if (isVerProcessDisabled(x, numVerVirBndry, verVirBndryPos)) {
-            continue;
-          }
-          edgeType = sgn(srcLine[x] - srcLineAbove[x - 1]) - signUpLine[x + 1];
+    if (x < firstLineEndX) {
+      Pel tmpData[8];
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i above = _mm_loadu_si128((__m128i*)&srcLineAbove[x + 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x - 1]);
+      above = _mm_sub_epi16(curr, above);
+      signUp = _mm_sub_epi16(vbaseoffset, signUp);  // 2 - signUpLine[x-1];
+      above = _mm_sign_epi16(vplusone, above);      // sgn(resLine[x] - srcLineAbove[x+1])
+      __m128i vsign = _mm_add_epi16(above, signUp);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < firstLineEndX; x++) resLine[x] = tmpData[x - base];
+    }
+    resLine += resStride;
 
-          resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-        }
+    // middle lines
+    for (y = 1; y < height - 1; y++) {
+      srcLineBelow = resLine + resStride;
+      x = startX;
+      if (isLeftAvail) {
+        int signDown = (int16_t)sgn(resLine[x] - leftLine[y + 1]);
+        int edgeType = signDown + signUpLine[x];
+        resLine[x] = ClipPel<int>(resLine[x] + offset[edgeType], clpRng);
+        signUpLine[x - 1] = -signDown;
+        x++;
       }
-      srcLine += srcStride;
+      for (; x < endX - 7; x += 8) {
+        __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+        __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x - 1]);
+        __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+        __m128i signDown = _mm_sub_epi16(curr, below);
+        signUp = _mm_add_epi16(signUp, vbaseoffset);
+        signDown = _mm_sign_epi16(vplusone, signDown);
+        __m128i vsign = _mm_add_epi16(signUp, signDown);
+        below = _mm_sub_epi16(vzero, signDown);  // -signDown
+        __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+        _mm_storeu_si128((__m128i*)&signUpLine[x - 1], below);
+        veoffsets = _mm_slli_epi16(veoffsets, 8);
+        veoffsets = _mm_srai_epi16(veoffsets, 8);
+        curr = _mm_add_epi16(curr, veoffsets);
+        curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+        _mm_storeu_si128((__m128i*)&resLine[x], curr);
+      }
+      if (x < endX) {
+        Pel tmpData[8];
+        __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+        __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x - 1]);
+        __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+        __m128i signDown = _mm_sub_epi16(curr, below);
+        signUp = _mm_add_epi16(signUp, vbaseoffset);
+        signDown = _mm_sign_epi16(vplusone, signDown);
+        __m128i vsign = _mm_add_epi16(signUp, signDown);
+        below = _mm_sub_epi16(vzero, signDown);  // -signDown
+        __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+        _mm_storeu_si128((__m128i*)&signUpLine[x - 1], below);
+        veoffsets = _mm_slli_epi16(veoffsets, 8);
+        veoffsets = _mm_srai_epi16(veoffsets, 8);
+        curr = _mm_add_epi16(curr, veoffsets);
+        curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+        _mm_storeu_si128((__m128i*)&tmpData[0], curr);
+        int base = x;
+        for (; x < endX; x++) resLine[x] = tmpData[x - base];
+      }
+      signUpLine[endX - 1] = (int16_t)sgn(srcLineBelow[endX - 1] - resLine[endX]);
       resLine += resStride;
-      // middle lines
-      for (y = 1; y < height - 1; y++) {
-        if (isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          srcLineBelow = srcLine + srcStride;
-          for (x = startX; x < endX; x++) {
-            signDown = (int8_t)sgn(srcLine[x] - srcLineBelow[x + 1]);
-            signDownLine[x + 1] = -signDown;
-          }
-          signDownLine[startX] = (int8_t)sgn(srcLineBelow[startX] - srcLine[startX - 1]);
-          signTmpLine = signUpLine;
-          signUpLine = signDownLine;
-          signDownLine = signTmpLine;
-          srcLine += srcStride;
-          resLine += resStride;
-        } else {
-          srcLineBelow = srcLine + srcStride;
-          for (x = startX; x < endX; x++) {
-            signDown = (int8_t)sgn(srcLine[x] - srcLineBelow[x + 1]);
-            if (isVerProcessDisabled(x, numVerVirBndry, verVirBndryPos)) {
-              signDownLine[x + 1] = -signDown;
-              continue;
-            }
-            edgeType = signDown + signUpLine[x];
-            resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-
-            signDownLine[x + 1] = -signDown;
-          }
-          signDownLine[startX] = (int8_t)sgn(srcLineBelow[startX] - srcLine[startX - 1]);
-          signTmpLine = signUpLine;
-          signUpLine = signDownLine;
-          signDownLine = signTmpLine;
-          srcLine += srcStride;
-          resLine += resStride;
-        }
-      }
-      // last line
-      srcLineBelow = srcLine + srcStride;
-      lastLineStartX = isBelowAvail ? startX : (width - 1);
-      lastLineEndX = isBelowRightAvail ? width : (width - 1);
-      if (!isHorProcessDisabled(height - 1, numHorVirBndry, horVirBndryPos)) {
-        for (x = lastLineStartX; x < lastLineEndX; x++) {
-          if (isVerProcessDisabled(x, numVerVirBndry, verVirBndryPos)) {
-            continue;
-          }
-          edgeType = sgn(srcLine[x] - srcLineBelow[x + 1]) + signUpLine[x];
-          resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-        }
-      }
-    } else {
-      // 1st line
-      const Pel* srcLineAbove = srcLine - srcStride;
-      firstLineStartX = isAboveLeftAvail ? 0 : 1;
-      firstLineEndX = isAboveAvail ? endX : 1;
-      for (x = firstLineStartX; x < firstLineEndX; x++) {
-        edgeType = sgn(srcLine[x] - srcLineAbove[x - 1]) - signUpLine[x + 1];
-        resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-      }
-      srcLine += srcStride;
-      resLine += resStride;
-      // middle lines
-      for (y = 1; y < height - 1; y++) {
-        srcLineBelow = srcLine + srcStride;
-        for (x = startX; x < endX; x++) {
-          signDown = (int8_t)sgn(srcLine[x] - srcLineBelow[x + 1]);
-          edgeType = signDown + signUpLine[x];
-          resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-          signDownLine[x + 1] = -signDown;
-        }
-        signDownLine[startX] = (int8_t)sgn(srcLineBelow[startX] - srcLine[startX - 1]);
-        signTmpLine = signUpLine;
-        signUpLine = signDownLine;
-        signDownLine = signTmpLine;
-        srcLine += srcStride;
-        resLine += resStride;
-      }
-      // last line
-      srcLineBelow = srcLine + srcStride;
-      lastLineStartX = isBelowAvail ? startX : (width - 1);
-      lastLineEndX = isBelowRightAvail ? width : (width - 1);
-      for (x = lastLineStartX; x < lastLineEndX; x++) {
-        edgeType = sgn(srcLine[x] - srcLineBelow[x + 1]) + signUpLine[x];
-        resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-      }
+    }
+    // last line
+    srcLineBelow = resLine + resStride;
+    int lastLineStartX = isBelowLeftAvail ? 0 : 1;
+    int lastLineEndX = isBelowAvail ? endX : 1;
+    // below left is in reconstruction buffer, not line buffer
+    for (x = lastLineStartX; x < lastLineEndX - 7; x += 8) {
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x - 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+      __m128i signDown = _mm_sub_epi16(curr, below);
+      signUp = _mm_add_epi16(signUp, vbaseoffset);
+      signDown = _mm_sign_epi16(vplusone, signDown);
+      __m128i vsign = _mm_add_epi16(signUp, signDown);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&resLine[x], curr);
+    }
+    if (x < lastLineEndX) {
+      Pel tmpData[8];
+      __m128i curr = _mm_loadu_si128((__m128i*)&resLine[x]);
+      __m128i below = _mm_loadu_si128((__m128i*)&srcLineBelow[x - 1]);
+      __m128i signUp = _mm_loadu_si128((__m128i*)&signUpLine[x]);
+      __m128i signDown = _mm_sub_epi16(curr, below);
+      signUp = _mm_add_epi16(signUp, vbaseoffset);
+      signDown = _mm_sign_epi16(vplusone, signDown);
+      __m128i vsign = _mm_add_epi16(signUp, signDown);
+      __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
+      veoffsets = _mm_slli_epi16(veoffsets, 8);
+      veoffsets = _mm_srai_epi16(veoffsets, 8);
+      curr = _mm_add_epi16(curr, veoffsets);
+      curr = _mm_min_epi16(_mm_max_epi16(curr, vzero), vibdimax);
+      _mm_storeu_si128((__m128i*)&tmpData[0], curr);
+      int base = x;
+      for (; x < lastLineEndX; x++) resLine[x] = tmpData[x - base];
     }
   }
 }
 
 template <X86_VEXT vext>
-static void offsetBlock_SIMD_SAO_TYPE_EO_45(
-    const int channelBitDepth, const ClpRng& clpRng, int* offset, const Pel* srcBlk, Pel* resBlk, ptrdiff_t srcStride,
-    ptrdiff_t resStride, int width, int height, bool isLeftAvail, bool isRightAvail, bool isAboveAvail,
-    bool isBelowAvail, bool isAboveLeftAvail, bool isAboveRightAvail, bool isBelowLeftAvail, bool isBelowRightAvail,
-    std::vector<int8_t>* m_signLineBuf1, std::vector<int8_t>* m_signLineBuf2, bool isCtuCrossedByVirtualBoundaries,
-    int horVirBndryPos[], int verVirBndryPos[], int numHorVirBndry, int numVerVirBndry, uint16_t bndmask[MAX_CU_SIZE]) {
-  const Pel* srcLine = srcBlk;
-  Pel* resLine = resBlk;
-
-  int x, y, startX, startY, endX, endY, edgeType;
-  int firstLineStartX, firstLineEndX, lastLineStartX, lastLineEndX;
-  int8_t signDown;
-
-  if (isLeftAvail && isRightAvail && isAboveLeftAvail && isBelowRightAvail) {
-    int8_t p_eo_offsets[16] = {0};
-    for (int i = 0; i < SAO_EO_NUM_CATEGORIES; i++) {
-      p_eo_offsets[i] = offset[i];
-    }
-    const Pel* srcLineAbove = srcLine - srcStride;
-    const Pel* srcLineBelow = srcLine + srcStride;
-    startY = 0;
-    if (!isAboveAvail) {
-      startY = 1;
-      srcLineAbove = srcLine;
-      srcLine += srcStride;
-      resLine += resStride;
-      srcLineBelow = srcLine + srcStride;
-    }
-    endY = height;
-    if (!isBelowAvail) {
-      endY = height - 1;
-    }
-#  ifdef USE_AVX2
-    // AVX2
-    if ((width > 8) && (vext >= AVX2)) {
-      __m256i virBmask;
-      __m256i vsrca, vsrcat, vsrcab;
-      __m256i vbaseoffset = _mm256_set1_epi16(2);
-      __m256i vplusone = _mm256_set1_epi16(1);
-      __m256i vzero = _mm256_set1_epi8(0);
-      __m256i vibdimax = _mm256_set1_epi16((1 << channelBitDepth) - 1);
-      __m256i voffsettbl = _mm256_broadcastsi128_si256(_mm_loadu_si128((__m128i*)p_eo_offsets));
-      const Pel* srcLineBelow = srcLine + srcStride;
-
-      for (y = startY; y < endY; y++) {
-        //         printf("y %d endY %d x%d y %d \n"y,endY,isAboveAvail,)
-        if (!isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          for (x = 0; x < width; x += 16) {
-            virBmask = _mm256_loadu_si256((__m256i*)&bndmask[x]);
-            vsrca = _mm256_loadu_si256((__m256i*)&srcLine[x]);
-            vsrcat = _mm256_loadu_si256((__m256i*)&srcLineAbove[x + 1]);
-            vsrcab = _mm256_loadu_si256((__m256i*)&srcLineBelow[x - 1]);
-
-            vsrcat = _mm256_sub_epi16(vsrca, vsrcat);
-            vsrcab = _mm256_sub_epi16(vsrca, vsrcab);
-            __m256i vsignt = _mm256_sign_epi16(vplusone, vsrcat);
-            __m256i vsignb = _mm256_sign_epi16(vplusone, vsrcab);
-            __m256i vsign = _mm256_add_epi16(_mm256_add_epi16(vsignt, vsignb), vbaseoffset);
-            __m256i veoffsets = _mm256_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm256_slli_epi16(veoffsets, 8);
-            veoffsets = _mm256_srai_epi16(veoffsets, 8);
-
-            vsrcat = _mm256_add_epi16(vsrca, veoffsets);
-            vsrcat = _mm256_min_epi16(_mm256_max_epi16(vsrcat, vzero), vibdimax);
-
-            vsrcab = _mm256_blendv_epi8(vsrcat, vsrca, virBmask);
-
-            _mm256_storeu_si256((__m256i*)&resLine[x], vsrcab);
-          }
-        }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
-        resLine += resStride;
-      }
-    } else
-#  endif
-    {
-      __m128i vsrca, vsrcat, vsrcab, virBmask;
-      __m128i vbaseoffset = _mm_set1_epi16(2);
-      __m128i vplusone = _mm_set1_epi16(1);
-      __m128i vzero = _mm_set1_epi8(0);
-      __m128i vibdimax = _mm_set1_epi16((1 << channelBitDepth) - 1);
-      __m128i voffsettbl = _mm_loadu_si128((__m128i*)p_eo_offsets);
-
-      for (y = startY; y < endY; y++) {
-        if (!isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          for (x = 0; x < width; x += 8) {
-            vsrca = _mm_loadu_si128((__m128i*)&srcLine[x]);
-            vsrcat = _mm_loadu_si128((__m128i*)&srcLineAbove[x + 1]);
-            virBmask = _mm_loadu_si128((__m128i*)&bndmask[x]);
-
-            vsrcab = _mm_loadu_si128((__m128i*)&srcLineBelow[x - 1]);
-            vsrcat = _mm_sub_epi16(vsrca, vsrcat);
-            vsrcab = _mm_sub_epi16(vsrca, vsrcab);
-            __m128i vsignt = _mm_sign_epi16(vplusone, vsrcat);
-            __m128i vsignb = _mm_sign_epi16(vplusone, vsrcab);
-            __m128i vsign = _mm_add_epi16(_mm_add_epi16(vsignt, vsignb), vbaseoffset);
-            __m128i veoffsets = _mm_shuffle_epi8(voffsettbl, vsign);
-            veoffsets = _mm_slli_epi16(veoffsets, 8);
-            veoffsets = _mm_srai_epi16(veoffsets, 8);
-
-            vsrcat = _mm_add_epi16(vsrca, veoffsets);
-            vsrcat = _mm_min_epi16(_mm_max_epi16(vsrcat, vzero), vibdimax);
-
-            vsrcab = _mm_blendv_epi8(vsrcat, vsrca, virBmask);
-
-            _mm_store_si128((__m128i*)&resLine[x], vsrcab);
-          }
-        }
-        srcLine += srcStride;
-        srcLineBelow += srcStride;
-        srcLineAbove += srcStride;
-        resLine += resStride;
-      }
-    }
-  } else {
-    offset += 2;
-    int8_t* signUpLine = &m_signLineBuf1->at(1);
-    startX = isLeftAvail ? 0 : 1;
-    endX = isRightAvail ? width : (width - 1);
-    // prepare 2nd line upper sign
-    const Pel* srcLineBelow = srcLine + srcStride;
-    for (x = startX - 1; x < endX; x++) {
-      signUpLine[x] = (int8_t)sgn(srcLineBelow[x] - srcLine[x + 1]);
-    }
-
-    if (isCtuCrossedByVirtualBoundaries) {
-      // first line
-      const Pel* srcLineAbove = srcLine - srcStride;
-      firstLineStartX = isAboveAvail ? startX : (width - 1);
-      firstLineEndX = isAboveRightAvail ? width : (width - 1);
-      if (!isHorProcessDisabled(0, numHorVirBndry, horVirBndryPos)) {
-        for (x = firstLineStartX; x < firstLineEndX; x++) {
-          if (isVerProcessDisabled(x, numVerVirBndry, verVirBndryPos)) {
-            continue;
-          }
-          edgeType = sgn(srcLine[x] - srcLineAbove[x + 1]) - signUpLine[x - 1];
-          resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-        }
-      }
-      srcLine += srcStride;
-      resLine += resStride;
-      // middle lines
-      for (y = 1; y < height - 1; y++) {
-        if (isHorProcessDisabled(y, numHorVirBndry, horVirBndryPos)) {
-          srcLineBelow = srcLine + (srcStride);
-          for (x = startX; x < endX; x++) {
-            signDown = (int8_t)sgn(srcLine[x] - srcLineBelow[x - 1]);
-            signUpLine[x - 1] = -signDown;
-          }
-          signUpLine[endX - 1] = (int8_t)sgn(srcLineBelow[endX - 1] - srcLine[endX]);
-          srcLine += srcStride;
-          resLine += (resStride);
-        } else {
-          srcLineBelow = srcLine + srcStride;
-          for (x = startX; x < endX; x++) {
-            signDown = (int8_t)sgn(srcLine[x] - srcLineBelow[x - 1]);
-            if (isVerProcessDisabled(x, numVerVirBndry, verVirBndryPos)) {
-              signUpLine[x - 1] = -signDown;
-              continue;
-            }
-            edgeType = signDown + signUpLine[x];
-            resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-            signUpLine[x - 1] = -signDown;
-          }
-          signUpLine[endX - 1] = (int8_t)sgn(srcLineBelow[endX - 1] - srcLine[endX]);
-          srcLine += srcStride;
-          resLine += resStride;
-        }
-      }
-      // last line
-      srcLineBelow = srcLine + srcStride;
-      lastLineStartX = isBelowLeftAvail ? 0 : 1;
-      lastLineEndX = isBelowAvail ? endX : 1;
-      if (!isHorProcessDisabled(height - 1, numHorVirBndry, horVirBndryPos)) {
-        for (x = lastLineStartX; x < lastLineEndX; x++) {
-          if (isVerProcessDisabled(x, numVerVirBndry, verVirBndryPos)) {
-            continue;
-          }
-          edgeType = sgn(srcLine[x] - srcLineBelow[x - 1]) + signUpLine[x];
-          resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-        }
-      }
-    } else {
-      // first line
-      const Pel* srcLineAbove = srcLine - srcStride;
-      firstLineStartX = isAboveAvail ? startX : (width - 1);
-      firstLineEndX = isAboveRightAvail ? width : (width - 1);
-      for (x = firstLineStartX; x < firstLineEndX; x++) {
-        edgeType = sgn(srcLine[x] - srcLineAbove[x + 1]) - signUpLine[x - 1];
-        resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-      }
-      srcLine += srcStride;
-      resLine += resStride;
-      // middle lines
-      for (y = 1; y < height - 1; y++) {
-        srcLineBelow = srcLine + srcStride;
-        for (x = startX; x < endX; x++) {
-          signDown = (int8_t)sgn(srcLine[x] - srcLineBelow[x - 1]);
-          edgeType = signDown + signUpLine[x];
-          resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-          signUpLine[x - 1] = -signDown;
-        }
-        signUpLine[endX - 1] = (int8_t)sgn(srcLineBelow[endX - 1] - srcLine[endX]);
-        srcLine += srcStride;
-        resLine += resStride;
-      }
-      // last line
-      srcLineBelow = srcLine + srcStride;
-      lastLineStartX = isBelowLeftAvail ? 0 : 1;
-      lastLineEndX = isBelowAvail ? endX : 1;
-      for (x = lastLineStartX; x < lastLineEndX; x++) {
-        edgeType = sgn(srcLine[x] - srcLineBelow[x - 1]) + signUpLine[x];
-        resLine[x] = ClipPel<int>(srcLine[x] + offset[edgeType], clpRng);
-      }
-    }
-  }
+void SampleAdaptiveOffset::_initSampleAdaptiveOffsetX86(int bitDepth) {
+  processBO = processBO_SIMD<vext>;
+  processEO0 = processEO0_SIMD<vext>;
+  processEO90 = processEO90_SIMD<vext>;
+  processEO135 = processEO135_SIMD<vext>;
+  processEO45 = processEO45_SIMD<vext>;
 }
 
-template <X86_VEXT vext>
-void offsetBlock_SIMD(const int channelBitDepth, const ClpRng& clpRng, int typeIdx, int* offset, int startIdx,
-                      const Pel* srcBlk, Pel* resBlk, ptrdiff_t srcStride, ptrdiff_t resStride, int width, int height,
-                      bool isLeftAvail, bool isRightAvail, bool isAboveAvail, bool isBelowAvail, bool isAboveLeftAvail,
-                      bool isAboveRightAvail, bool isBelowLeftAvail, bool isBelowRightAvail,
-                      std::vector<int8_t>* m_signLineBuf1, std::vector<int8_t>* m_signLineBuf2,
-                      bool isCtuCrossedByVirtualBoundaries, int horVirBndryPos[], int verVirBndryPos[],
-                      int numHorVirBndry, int numVerVirBndry) {
-  if (typeIdx == SAO_TYPE_BO) {
-    offsetBlock_SIMD_SAO_TYPE_BO<vext>(channelBitDepth, offset, startIdx, srcBlk, resBlk, srcStride, resStride, width,
-                                       height);
-
-#  if USE_AVX2
-    _mm256_zeroupper();
-#  endif
-    return;
-  }
-
-  uint16_t bndmask[MAX_CU_SIZE];
-  memset(&bndmask, 0, MAX_CU_SIZE * sizeof(uint16_t));
-  if (isCtuCrossedByVirtualBoundaries && numVerVirBndry > 0) {
-    for (int i = 0; i < numVerVirBndry; i++) {
-      if (verVirBndryPos[i] >= 0 && verVirBndryPos[i] < width) {
-        bndmask[verVirBndryPos[i]] = 0xffff;
-      }
-
-      if (verVirBndryPos[i] - 1 >= 0 && verVirBndryPos[i] - 1 < width) {
-        bndmask[verVirBndryPos[i] - 1] = 0xffff;
-      }
-    }
-  }
-
-  switch (typeIdx) {
-    case SAO_TYPE_EO_0:
-      offsetBlock_SIMD_SAO_TYPE_EO_0<vext>(channelBitDepth, clpRng, offset, srcBlk, resBlk, srcStride, resStride, width,
-                                           height, isLeftAvail, isRightAvail, isAboveAvail, isBelowAvail,
-                                           isAboveLeftAvail, isAboveRightAvail, isBelowLeftAvail, isBelowRightAvail,
-                                           m_signLineBuf1, m_signLineBuf2, isCtuCrossedByVirtualBoundaries,
-                                           horVirBndryPos, verVirBndryPos, numHorVirBndry, numVerVirBndry, bndmask);
-      break;
-
-    case SAO_TYPE_EO_90:
-      offsetBlock_SIMD_SAO_TYPE_EO_90<vext>(channelBitDepth, clpRng, offset, srcBlk, resBlk, srcStride, resStride,
-                                            width, height, isLeftAvail, isRightAvail, isAboveAvail, isBelowAvail,
-                                            isAboveLeftAvail, isAboveRightAvail, isBelowLeftAvail, isBelowRightAvail,
-                                            m_signLineBuf1, m_signLineBuf2, isCtuCrossedByVirtualBoundaries,
-                                            horVirBndryPos, verVirBndryPos, numHorVirBndry, numVerVirBndry, bndmask);
-      break;
-
-    case SAO_TYPE_EO_135:
-      offsetBlock_SIMD_SAO_TYPE_EO_135<vext>(channelBitDepth, clpRng, offset, srcBlk, resBlk, srcStride, resStride,
-                                             width, height, isLeftAvail, isRightAvail, isAboveAvail, isBelowAvail,
-                                             isAboveLeftAvail, isAboveRightAvail, isBelowLeftAvail, isBelowRightAvail,
-                                             m_signLineBuf1, m_signLineBuf2, isCtuCrossedByVirtualBoundaries,
-                                             horVirBndryPos, verVirBndryPos, numHorVirBndry, numVerVirBndry, bndmask);
-      break;
-
-    case SAO_TYPE_EO_45:
-      offsetBlock_SIMD_SAO_TYPE_EO_45<vext>(channelBitDepth, clpRng, offset, srcBlk, resBlk, srcStride, resStride,
-                                            width, height, isLeftAvail, isRightAvail, isAboveAvail, isBelowAvail,
-                                            isAboveLeftAvail, isAboveRightAvail, isBelowLeftAvail, isBelowRightAvail,
-                                            m_signLineBuf1, m_signLineBuf2, isCtuCrossedByVirtualBoundaries,
-                                            horVirBndryPos, verVirBndryPos, numHorVirBndry, numVerVirBndry, bndmask);
-      break;
-
-    default:
-      THROW("Not a supported SAO types\n");
-  }
-
-#  if USE_AVX2
-  _mm256_zeroupper();
-#  endif
-}
-
-template <X86_VEXT vext>
-void SampleAdaptiveOffset::_initSampleAdaptiveOffsetX86() {
-  offsetBlock = offsetBlock_SIMD<vext>;
-}
-
-template void SampleAdaptiveOffset::_initSampleAdaptiveOffsetX86<SIMDX86>();
+template void SampleAdaptiveOffset::_initSampleAdaptiveOffsetX86<SIMDX86>(int bitDepth);
 #endif  //#ifdef TARGET_SIMD_X86
 //! \}

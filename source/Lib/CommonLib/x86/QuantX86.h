@@ -529,11 +529,11 @@ static void DeQuantCorePCMSIMD(const int maxX, const int restX, const int maxY, 
 }
 
 template <X86_VEXT vext>
-void Quant::_initQuantX86() {
+void Quant::_initQuantX86(int bitDepth) {
   DeQuant = DeQuantCoreSIMD<vext>;
   DeQuantPCM = DeQuantCorePCMSIMD<vext>;
 }
-template void Quant::_initQuantX86<SIMDX86>();
+template void Quant::_initQuantX86<SIMDX86>(int bitDepth);
 
 #  endif  // TARGET_SIMD_X86
 #endif

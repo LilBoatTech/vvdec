@@ -80,18 +80,19 @@ void BinDecoderBase::reset(int qp, int initId) {
 }
 
 unsigned BinDecoderBase::decodeBinEP() {
-  m_Value += m_Value;
+  int value = m_Value << 1;
   if (++m_bitsNeeded >= 0) {
-    m_Value += m_Bitstream->readByte();
+    value += m_Bitstream->readByte();
     m_bitsNeeded = -8;
   }
 
   unsigned bin = 0;
   unsigned SR = m_Range << 7;
-  if (m_Value >= SR) {
-    m_Value -= SR;
+  if (value >= SR) {
+    value -= SR;
     bin = 1;
   }
+  m_Value = value;
   DTRACE(g_trace_ctx, D_CABAC,
          "%d"
          "  "
@@ -111,34 +112,40 @@ unsigned BinDecoderBase::decodeBinsEP(unsigned numBins) {
   }
   unsigned remBins = numBins;
   unsigned bins = 0;
+  int value = m_Value;
+  int range = m_Range;
+  int bitsNeeded = m_bitsNeeded;
   while (remBins > 8) {
-    m_Value = (m_Value << 8) + (m_Bitstream->readByte() << (8 + m_bitsNeeded));
-    unsigned SR = m_Range << 15;
+    value = (value << 8) + (m_Bitstream->readByte() << (8 + bitsNeeded));
+    unsigned SR = range << 15;
     for (int i = 0; i < 8; i++) {
       bins += bins;
       SR >>= 1;
-      if (m_Value >= SR) {
-        bins++;
-        m_Value -= SR;
-      }
+      const int b = (value >= SR) ? -1 : 0;
+      bins += 1 & b;
+      value -= SR & b;
     }
     remBins -= 8;
   }
-  m_bitsNeeded += remBins;
-  m_Value <<= remBins;
-  if (m_bitsNeeded >= 0) {
-    m_Value += m_Bitstream->readByte() << m_bitsNeeded;
-    m_bitsNeeded -= 8;
-  }
-  unsigned SR = m_Range << (remBins + 7);
+  bitsNeeded += remBins;
+  value <<= remBins;
+
+  const int c = ~(bitsNeeded >> 31);
+  value += m_Bitstream->readByteFlag(c) << bitsNeeded;
+  bitsNeeded -= c & 8;
+
+  unsigned SR = range << (remBins + 7);
   for (int i = 0; i < remBins; i++) {
     bins += bins;
     SR >>= 1;
-    if (m_Value >= SR) {
-      bins++;
-      m_Value -= SR;
-    }
+
+    const int b = (value >= SR) ? -1 : 0;
+    bins += 1 & b;
+    value -= SR & b;
   }
+  m_Value = value;
+  m_Range = range;
+  m_bitsNeeded = bitsNeeded;
 #if ENABLE_TRACING
   for (int i = 0; i < numBinsOrig; i++) {
     DTRACE(g_trace_ctx, D_CABAC,
@@ -257,9 +264,6 @@ unsigned BinDecoder::decodeBin(unsigned ctxId) {
 
   rcProbModel.lpsmps(Range, LPS, bin);
 
-  //  DTRACE( g_trace_ctx, D_CABAC, "%d" " xxx " "%d" "  " "[%d:%d]" "  " "%2d(MPS=%d)"  "  " , DTRACE_GET_COUNTER(
-  //  g_trace_ctx, D_CABAC ), m_Range, m_Range-LPS, LPS, ( unsigned int )( rcProbModel.state() ), m_Value < ( ( m_Range
-  //  - LPS ) << 7 ) );
   DTRACE(g_trace_ctx, D_CABAC,
          "%d"
          " %d "
@@ -271,18 +275,15 @@ unsigned BinDecoder::decodeBin(unsigned ctxId) {
          "  ",
          DTRACE_GET_COUNTER(g_trace_ctx, D_CABAC), 666, Range, Range - LPS, LPS, (unsigned int)(rcProbModel.state()),
          Value < ((Range - LPS) << 7));
-  // DTRACE( g_trace_ctx, D_CABAC, " %d " "%d" "  " "[%d:%d]" "  " "%2d(MPS=%d)"  "  ", DTRACE_GET_COUNTER( g_trace_ctx,
-  // D_CABAC ), m_Range, m_Range - LPS, LPS, (unsigned int)( rcProbModel.state() ), m_Value < ( ( m_Range - LPS ) << 7 )
-  // );
 
   Range -= LPS;
-  uint32_t SR = Range << 7;
+  const uint32_t SR = Range << 7;
 
-  int b = ~((int(Value) - int(SR)) >> 31);
-  int a = ~b & ((int(Range) - 256) >> 31);
-  // int b = -( Value >= SR );
+  //    const int b = ~( ( int( Value ) - int( SR ) ) >> 31 );
+  const int b = (Value >= SR) ? -1 : 0;
+  const int a = ~b & ((int(Range) - 256) >> 31);
 
-  int numBits = (a & rcProbModel.getRenormBitsRange(Range)) | (b & rcProbModel.getRenormBitsLPS(LPS));
+  const int numBits = (a & rcProbModel.getRenormBitsRange(Range)) | (b & rcProbModel.getRenormBitsLPS(LPS));
 
   Value -= b & SR;
   Value <<= numBits;
@@ -291,59 +292,26 @@ unsigned BinDecoder::decodeBin(unsigned ctxId) {
   Range |= (b & LPS);
   Range <<= numBits;
 
-  // b    0 0 1 1
-  // bin  0 1 0 1
-  // res  0 1 1 0
-
-  // bin          = ( ~b & bin ) | ( b & !bin );
   bin ^= b;
   bin &= 1;
 
-  bitsNeeded += numBits & (a | b);
+  bitsNeeded += numBits;
 
-  if (bitsNeeded >= 0) {
-    Value += m_Bitstream->readByte() << bitsNeeded;
-    bitsNeeded -= 8;
-  }
-
-  // if( Value < SR )
-  //{
-  //  // MPS path
-  //  if( Range < 256 )
-  //  {
-  //    int numBits   = rcProbModel.getRenormBitsRange( Range );
-  //    Range       <<= numBits;
-  //    Value       <<= numBits;
-  //    bitsNeeded   += numBits;
   //    if( bitsNeeded >= 0 )
   //    {
   //      Value      += m_Bitstream->readByte() << bitsNeeded;
   //      bitsNeeded -= 8;
   //    }
-  //  }
-  //}
-  // else
-  //{
-  //  bin = !bin;
-  //  // LPS path
-  //  int numBits   = rcProbModel.getRenormBitsLPS( LPS );
-  //  Value        -= SR;
-  //  Value       <<= numBits;
-  //  Range         = LPS     << numBits;
-  //  bitsNeeded   += numBits;
-  //  if( bitsNeeded >= 0 )
-  //  {
-  //    Value      += m_Bitstream->readByte() << bitsNeeded;
-  //    bitsNeeded -= 8;
-  //  }
-  //}
+
+  const int c = ~(bitsNeeded >> 31);
+  Value += m_Bitstream->readByteFlag(c) << bitsNeeded;
+  bitsNeeded -= c & 8;
 
   m_Range = Range;
   m_Value = Value;
   m_bitsNeeded = bitsNeeded;
 
   rcProbModel.update(bin);
-  // DTRACE_DECR_COUNTER( g_trace_ctx, D_CABAC );
   DTRACE_WITHOUT_COUNT(g_trace_ctx, D_CABAC,
                        "  -  "
                        "%d"

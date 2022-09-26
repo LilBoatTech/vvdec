@@ -56,7 +56,9 @@ THE POSSIBILITY OF SUCH DAMAGE.
 // picture methods
 // ---------------------------------------------------------------------------
 
-void paddPicBorderTopCore(Pel *pi, ptrdiff_t stride, int width, int xmargin, int ymargin) {
+template <typename T>
+void paddPicBorderTopCore(Pel *_pi, ptrdiff_t stride, int width, int xmargin, int ymargin) {
+  T *pi = reinterpret_cast<T *>(_pi);
   for (int x = 0; x < xmargin; x++) {
     pi[-xmargin + x] = pi[0];
     pi[width + x] = pi[width - 1];
@@ -64,11 +66,13 @@ void paddPicBorderTopCore(Pel *pi, ptrdiff_t stride, int width, int xmargin, int
   pi -= xmargin;
   // pi is now (-marginX, 0)
   for (int y = 0; y < ymargin; y++) {
-    ::memcpy(pi - (y + 1) * stride, pi, sizeof(Pel) * (width + (xmargin << 1)));
+    ::memcpy(pi - (y + 1) * stride, pi, sizeof(T) * (width + (xmargin << 1)));
   }
 }
 
-void paddPicBorderBotCore(Pel *pi, ptrdiff_t stride, int width, int xmargin, int ymargin) {
+template <typename T>
+void paddPicBorderBotCore(Pel *_pi, ptrdiff_t stride, int width, int xmargin, int ymargin) {
+  T *pi = reinterpret_cast<T *>(_pi);
   for (int x = 0; x < xmargin; x++) {
     pi[-xmargin + x] = pi[0];
     pi[width + x] = pi[width - 1];
@@ -76,10 +80,13 @@ void paddPicBorderBotCore(Pel *pi, ptrdiff_t stride, int width, int xmargin, int
   pi -= xmargin;
   // pi is now the (-marginX, height-1)
   for (int y = 0; y < ymargin; y++) {
-    ::memcpy(pi + (y + 1) * stride, pi, sizeof(Pel) * (width + (xmargin << 1)));
+    ::memcpy(pi + (y + 1) * stride, pi, sizeof(T) * (width + (xmargin << 1)));
   }
 }
-void paddPicBorderLeftRightCore(Pel *pi, ptrdiff_t stride, int width, int xmargin, int height) {
+
+template <typename T>
+void paddPicBorderLeftRightCore(Pel *_pi, ptrdiff_t stride, int width, int xmargin, int height) {
+  T *pi = reinterpret_cast<T *>(_pi);
   for (int y = 1; y < (height - 1); y++) {
     for (int x = 0; x < xmargin; x++) {
       pi[-xmargin + x] = pi[0];
@@ -88,37 +95,54 @@ void paddPicBorderLeftRightCore(Pel *pi, ptrdiff_t stride, int width, int xmargi
     pi += stride;
   }
 }
-
+#if ADAPTIVE_BIT_DEPTH
 void Picture::create(const ChromaFormat &_chromaFormat, const Size &size, const unsigned _maxCUSize,
-                     const unsigned _margin, const int _layerId) {
+                     const unsigned _margin, const int _layerId, bool bEnableWrapAround, int bytePerPixel) {
   layerId = _layerId;
   UnitArea::operator=(UnitArea(_chromaFormat, Area(Position{0, 0}, size)));
   margin = _margin;
-  m_bufs[PIC_RECONSTRUCTION].create(_chromaFormat, size, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE);
-  m_bufs[PIC_RECON_WRAP].create(_chromaFormat, size, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE);
-  m_bufs[PIC_PREDICTION].create(_chromaFormat, size);
+  m_bufs[PIC_RECONSTRUCTION].create(_chromaFormat, size, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE, true,
+                                    bytePerPixel);
+  if (bEnableWrapAround)
+    m_bufs[PIC_RECON_WRAP].create(_chromaFormat, size, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE, true, bytePerPixel);
+  // m_bufs[PIC_PREDICTION    ].create( _chromaFormat, size );
+
+  neededForOutput = true;
+
+  m_bytePerPixel = bytePerPixel;
+}
+#else
+void Picture::create(const ChromaFormat &_chromaFormat, const Size &size, const unsigned _maxCUSize,
+                     const unsigned _margin, const int _layerId, bool bEnableWrapAround) {
+  layerId = _layerId;
+  UnitArea::operator=(UnitArea(_chromaFormat, Area(Position{0, 0}, size)));
+  margin = _margin;
+  m_bufs[PIC_RECONSTRUCTION].create(_chromaFormat, size, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE, true);
+  if (bEnableWrapAround)
+    m_bufs[PIC_RECON_WRAP].create(_chromaFormat, size, _maxCUSize, _margin, MEMORY_ALIGN_DEF_SIZE, true);
+  // m_bufs[PIC_PREDICTION    ].create( _chromaFormat, size );
 
   neededForOutput = true;
 }
+#endif
 
 void Picture::resetForUse() {
   CHECK(lockedByApplication, "the picture can not be re-used, because it has not been unlocked by the application.");
 
   isBorderExtended = false;
-#if JVET_Q0764_WRAP_AROUND_WITH_RPR
   wrapAroundValid = false;
   wrapAroundOffset = 0;
-#endif
   neededForOutput = true;
   reconstructed = false;
   inProgress = false;
   wasLost = false;
   skippedDecCount = 0;
-  done.lock();
+  // done.lock();
 }
 
 void Picture::destroy() {
-  CHECK(lockedByApplication, "the picture can not be destroyed, because it has not been unlocked by the application.");
+  // CHECK(lockedByApplication, "the picture can not be destroyed, because it has not been unlocked by the
+  // application.");
 
   for (uint32_t t = 0; t < NUM_PIC_TYPES; t++) {
     m_bufs[t].destroy();
@@ -131,12 +155,19 @@ void Picture::destroy() {
   }
 
 #if RECO_WHILE_PARSE
-  if (ctuParsedBarrier) {
-    delete[] ctuParsedBarrier;
-    ctuParsedBarrier = nullptr;
-  }
-
+  // if (ctuParsedBarrier) {
+  //  delete[] ctuParsedBarrier;
+  //  ctuParsedBarrier = nullptr;
+  //}
 #endif
+  if (m_rowReconCounter) {
+    delete[] m_rowReconCounter;
+    m_rowReconCounter = nullptr;
+  }
+  if (m_rowMotionInfoCounter) {
+    delete[] m_rowMotionInfoCounter;
+    m_rowMotionInfoCounter = nullptr;
+  }
   for (auto &ps : slices) {
     delete ps;
   }
@@ -152,6 +183,19 @@ void Picture::destroy() {
     m_spliceIdx = NULL;
   }
 }
+
+#if ADAPTIVE_BIT_DEPTH
+PelBuf Picture::getRecoBuf(const CompArea &blk, bool wrap, int bytePerPixel) {
+  if (!blk.valid()) {
+    return PelBuf();
+  }
+
+  const PelBuf &r = m_bufs[wrap ? PIC_RECON_WRAP : PIC_RECONSTRUCTION].bufs[blk.compID];
+  uint8_t *bufPtr =
+      (reinterpret_cast<uint8_t *>(r.buf)) + blk.pos().x * bytePerPixel + blk.pos().y * bytePerPixel * r.stride;
+  return PelBuf(reinterpret_cast<Pel *>(bufPtr), r.stride, blk);
+}
+#endif
 
 PelBuf Picture::getRecoBuf(const ComponentID compID, bool wrap) {
   return getBuf(compID, wrap ? PIC_RECON_WRAP : PIC_RECONSTRUCTION);
@@ -176,6 +220,30 @@ const CPelUnitBuf Picture::getRecoBuf(bool wrap) const {
   return wrap ? m_bufs[PIC_RECON_WRAP] : m_bufs[PIC_RECONSTRUCTION];
 }
 
+void Picture::initPicture(int bitDepth) {
+#define INIT_PIC_FUNC(type)                      \
+  paddPicBorderBot = paddPicBorderBotCore<type>; \
+  paddPicBorderTop = paddPicBorderTopCore<type>; \
+  paddPicBorderLeftRight = paddPicBorderLeftRightCore<type>;
+
+#if ADAPTIVE_BIT_DEPTH
+  m_bytePerPixel = bitDepth <= 8 ? 1 : 2;
+  if (bitDepth <= 8) {
+    INIT_PIC_FUNC(Pel8bit);
+  } else {
+    INIT_PIC_FUNC(Pel);
+  }
+#else
+  INIT_PIC_FUNC(Pel);
+#endif
+
+#undef INIT_PIC_FUNC
+
+  //  paddPicBorderBot = paddPicBorderBotCore;
+  //  paddPicBorderTop = paddPicBorderTopCore;
+  //  paddPicBorderLeftRight = paddPicBorderLeftRightCore;
+}
+
 void Picture::finalInit(const SPS *sps, const PPS *pps, PicHeader *picHeader, APS *alfApss[ALF_CTB_MAX_NUM_APS],
                         APS *lmcsAps, APS *scalingListAps) {
   for (auto &sei : SEIs) {
@@ -190,17 +258,25 @@ void Picture::finalInit(const SPS *sps, const PPS *pps, PicHeader *picHeader, AP
   const int iHeight = pps->getPicHeightInLumaSamples();
 
   if (!cs) {
-    cs = new CodingStructure(g_globalUnitCache.getCuCache(), g_globalUnitCache.getTuCache());
+    cs = new CodingStructure(/*g_globalUnitCache.getCuCache(), g_globalUnitCache.getTuCache()*/);
     cs->create(chromaFormatIDC, Area(0, 0, iWidth, iHeight));
   }
 
 #if RECO_WHILE_PARSE
-  if (!ctuParsedBarrier) {
-    ctuParsedBarrier = new Barrier[pps->pcv->sizeInCtus];
-  }
-
+  // if (!ctuParsedBarrier) {
+  //   ctuParsedBarrier = new Barrier[pps->pcv->sizeInCtus];
+  // }
 #endif
-  parseDone.lock();
+  if (!m_rowReconCounter) {
+    m_rowReconCounter = new vvdec::VVDecThreadCounter[pps->pcv->heightInCtus];
+  }
+  for (int i = 0; i < pps->pcv->heightInCtus; i++) m_rowReconCounter[i].set(0);
+  m_rowCompleteCount.set(0);
+  if (!m_rowMotionInfoCounter) {
+    m_rowMotionInfoCounter = new vvdec::VVDecThreadCounter[pps->pcv->heightInCtus];
+  }
+  for (int i = 0; i < pps->pcv->heightInCtus; i++) m_rowMotionInfoCounter[i].set(0);
+  // parseDone.lock();
   cs->picture = this;
   cs->pps = pps ? pps->getSharedPtr() : nullptr;
   cs->sps = sps ? sps->getSharedPtr() : nullptr;
@@ -227,12 +303,9 @@ void Picture::finalInit(const SPS *sps, const PPS *pps, PicHeader *picHeader, AP
     memset(m_spliceIdx, 0, m_ctuNums * sizeof(int));
   }
 
-  paddPicBorderBot = paddPicBorderBotCore;
-  paddPicBorderTop = paddPicBorderTopCore;
-  paddPicBorderLeftRight = paddPicBorderLeftRightCore;
-
+  initPicture(sps->getBitDepth(CHANNEL_TYPE_LUMA));
 #if ENABLE_SIMD_OPT_PICTURE
-  initPictureX86();
+  initPictureX86(sps->getBitDepth(CHANNEL_TYPE_LUMA));
 #endif
 }
 
@@ -572,7 +645,6 @@ void Picture::rescalePicture(const CPelUnitBuf &beforeScaling, const Window &con
   }
 }
 
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
 void Picture::saveSubPicBorder(int POC, int subPicX0, int subPicY0, int subPicWidth, int subPicHeight) {
   // 1.1 set up margin for back up memory allocation
   int xMargin = margin >> getComponentScaleX(COMPONENT_Y, cs->area.chromaFormat);
@@ -764,7 +836,177 @@ void Picture::restoreSubPicBorder(int POC, int subPicX0, int subPicY0, int subPi
   m_bufSubPicLeft.destroy();
   m_bufSubPicRight.destroy();
 }
+
+template <typename T>
+void Picture::extendPicBorderWrap(ComponentID compID, bool top, bool bottom, bool leftrightT, bool leftrightB) {
+  PelBuf prw = m_bufs[PIC_RECON_WRAP].get(compID);
+
+  PelBuf p = m_bufs[PIC_RECONSTRUCTION].get(compID);
+
+  int xmargin = margin >> getComponentScaleX(compID, cs->area.chromaFormat);
+  int ymargin = margin >> getComponentScaleY(compID, cs->area.chromaFormat);
+
+  int xoffset = cs->pps->getWrapAroundOffset() >> getComponentScaleX(compID, cs->area.chromaFormat);
+  if (leftrightT) {
+#if ADAPTIVE_BIT_DEPTH
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, 1, m_bytePerPixel));
+#else
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, 1));
 #endif
+
+    for (int y = 1; y < p.height / 2; y++) {
+      for (int x = 0; x < xmargin; x++) {
+        if (x < xoffset) {
+          piprw[-x - 1] = piprw[-x - 1 + xoffset];
+          piprw[prw.width + x] = piprw[prw.width + x - xoffset];
+        } else {
+          piprw[-x - 1] = piprw[0];
+          piprw[prw.width + x] = piprw[prw.width - 1];
+        }
+      }
+      piprw += p.stride;
+    }
+  }
+  if (leftrightB) {
+#if ADAPTIVE_BIT_DEPTH
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, p.height / 2, m_bytePerPixel));
+#else
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, p.height / 2));
+#endif
+
+    for (int y = 1; y < p.height / 2; y++) {
+      for (int x = 0; x < xmargin; x++) {
+        if (x < xoffset) {
+          piprw[-x - 1] = piprw[-x - 1 + xoffset];
+          piprw[prw.width + x] = piprw[prw.width + x - xoffset];
+        } else {
+          piprw[-x - 1] = piprw[0];
+          piprw[prw.width + x] = piprw[prw.width - 1];
+        }
+      }
+      piprw += p.stride;
+    }
+  }
+
+  if (bottom) {
+#if ADAPTIVE_BIT_DEPTH
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, prw.height - 1, m_bytePerPixel));
+#else
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, prw.height - 1));
+#endif
+    for (int x = 0; x < xmargin; x++) {
+      if (x < xoffset) {
+        piprw[-x - 1] = piprw[-x - 1 + xoffset];
+        piprw[prw.width + x] = piprw[prw.width + x - xoffset];
+      } else {
+        piprw[-x - 1] = piprw[0];
+        piprw[prw.width + x] = piprw[prw.width - 1];
+      }
+    }
+    piprw -= xmargin;
+    // pi is now the (-marginX, height-1)
+    for (int y = 0; y < ymargin; y++) {
+      ::memcpy(piprw + (y + 1) * prw.stride, piprw, sizeof(Pel) * (prw.width + (xmargin << 1)));
+    }
+  }
+  if (top) {
+#if ADAPTIVE_BIT_DEPTH
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, 0, m_bytePerPixel));
+#else
+    T *piprw = reinterpret_cast<T *>(prw.bufAt(0, 0));
+#endif
+    for (int x = 0; x < xmargin; x++) {
+      if (x < xoffset) {
+        piprw[-x - 1] = piprw[-x - 1 + xoffset];
+        piprw[prw.width + x] = piprw[prw.width + x - xoffset];
+      } else {
+        piprw[-x - 1] = piprw[0];
+        piprw[prw.width + x] = piprw[prw.width - 1];
+      }
+    }
+    piprw -= xmargin;
+    // pi is now (-marginX, 0)
+    for (int y = 0; y < ymargin; y++) {
+      ::memcpy(piprw - (y + 1) * prw.stride, piprw, sizeof(Pel) * (prw.width + (xmargin << 1)));
+    }
+  }
+}
+
+template <typename T>
+void Picture::paddPicBorderLeftRightWrap(Pel *_pi, ptrdiff_t stride, int width, int xmargin, int height, int xoffset) {
+  T *pi = reinterpret_cast<T *>(_pi);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < xmargin; x++) {
+      if (x < xoffset) {
+        pi[-x - 1] = pi[-x - 1 + xoffset];
+        pi[width + x] = pi[width + x - xoffset];
+      } else {
+        pi[-x - 1] = pi[0];
+        pi[width + x] = pi[width - 1];
+      }
+    }
+    pi += stride;
+  }
+}
+
+void Picture::extendRowBorder(int row) {
+  int picW = cs->pcv->lumaWidth;
+  int rowIndexY = row * cs->pcv->maxCUHeight;
+  int ctuHeight = cs->pcv->maxCUHeight;
+  if (row == cs->pcv->heightInCtus - 1) {
+    ctuHeight = cs->pcv->lumaHeight - rowIndexY;
+  }
+  for (int comp = 0; comp < getNumberValidComponents(cs->area.chromaFormat); comp++) {
+    ComponentID compID = ComponentID(comp);
+    CompArea area(compID, 0, rowIndexY >> getComponentScaleX(compID, cs->area.chromaFormat),
+                  picW >> getComponentScaleX(compID, cs->area.chromaFormat),
+                  ctuHeight >> getComponentScaleY(compID, cs->area.chromaFormat));
+
+    int xmargin = margin >> getComponentScaleX(compID, cs->area.chromaFormat);
+    int ymargin = margin >> getComponentScaleY(compID, cs->area.chromaFormat);
+
+    int bytePerPixel = 2;
+#if ADAPTIVE_BIT_DEPTH
+    PelBuf p = m_finalBuffer.getBuf(area, m_bytePerPixel);
+    Pel *pi = p.bufAt(0, 0, m_bytePerPixel);
+    bytePerPixel = m_bytePerPixel;
+#else
+    PelBuf p = m_finalBuffer.getBuf(area);
+    Pel *pi = p.bufAt(0, 0);
+#endif
+
+    if (cs->pps->getUseWrapAround()) {
+      int xoffset = cs->pps->getWrapAroundOffset() >> getComponentScaleX(compID, cs->area.chromaFormat);
+#if ADAPTIVE_BIT_DEPTH
+      if (bytePerPixel == 2)
+        paddPicBorderLeftRightWrap<Pel>(pi, p.stride, p.width, xmargin, p.height, xoffset);
+      else
+        paddPicBorderLeftRightWrap<Pel8bit>(pi, p.stride, p.width, xmargin, p.height, xoffset);
+#else
+      paddPicBorderLeftRightWrap<Pel>(pi, p.stride, p.width, xmargin, p.height, xoffset);
+#endif
+    } else {
+      paddPicBorderLeftRight(pi, p.stride, p.width, xmargin, p.height + 2);  // weird height
+    }
+    if (row == 0) {
+      uint8_t *src = reinterpret_cast<uint8_t *>(pi) - xmargin * bytePerPixel;
+      size_t copySize = (p.width + 2 * xmargin) * bytePerPixel;
+      uint8_t *dst = reinterpret_cast<uint8_t *>(src) - p.stride * bytePerPixel;
+      for (int i = 0; i < ymargin; i++) {
+        memcpy(dst - i * p.stride * bytePerPixel, src, copySize);
+      }
+    }
+    if (row == cs->pcv->heightInCtus - 1) {
+      uint8_t *src =
+          reinterpret_cast<uint8_t *>(pi) + (p.height - 1) * p.stride * bytePerPixel - xmargin * bytePerPixel;
+      size_t copySize = (p.width + 2 * xmargin) * bytePerPixel;
+      uint8_t *dst = reinterpret_cast<uint8_t *>(src) + p.stride * bytePerPixel;
+      for (int i = 0; i < ymargin; i++) {
+        memcpy(dst + i * p.stride * bytePerPixel, src, copySize);
+      }
+    }
+  }
+}
 
 void Picture::extendPicBorder(bool top, bool bottom, bool leftrightT, bool leftrightB, ChannelType chType) {
   for (int comp = 0; comp < getNumberValidComponents(cs->area.chromaFormat); comp++) {
@@ -777,106 +1019,50 @@ void Picture::extendPicBorder(bool top, bool bottom, bool leftrightT, bool leftr
     int xmargin = margin >> getComponentScaleX(compID, cs->area.chromaFormat);
     int ymargin = margin >> getComponentScaleY(compID, cs->area.chromaFormat);
 
-#if JVET_Q0764_WRAP_AROUND_WITH_RPR
-    if (cs->pps->getUseWrapAround())
+    if (cs->pps->getUseWrapAround()) {
+#if ADAPTIVE_BIT_DEPTH
+      if (m_bytePerPixel == 1) {
+        extendPicBorderWrap<Pel8bit>(compID, top, bottom, leftrightT, leftrightB);
+      } else {
+        extendPicBorderWrap<Pel>(compID, top, bottom, leftrightT, leftrightB);
+      }
 #else
-    if (cs->sps->getUseWrapAround())
+      extendPicBorderWrap<Pel>(compID, top, bottom, leftrightT, leftrightB);
 #endif
-    {
-      PelBuf prw = m_bufs[PIC_RECON_WRAP].get(compID);
-
-#if JVET_Q0764_WRAP_AROUND_WITH_RPR
-      int xoffset = cs->pps->getWrapAroundOffset() >> getComponentScaleX(compID, cs->area.chromaFormat);
-#else
-      int xoffset = cs->sps->getWrapAroundOffset() >> getComponentScaleX(compID, cs->area.chromaFormat);
-#endif
-      if (leftrightT) {
-        Pel *piprw = prw.bufAt(0, 1);
-
-        for (int y = 1; y < p.height / 2; y++) {
-          for (int x = 0; x < xmargin; x++) {
-            if (x < xoffset) {
-              piprw[-x - 1] = piprw[-x - 1 + xoffset];
-              piprw[prw.width + x] = piprw[prw.width + x - xoffset];
-            } else {
-              piprw[-x - 1] = piprw[0];
-              piprw[prw.width + x] = piprw[prw.width - 1];
-            }
-          }
-          piprw += p.stride;
-        }
-      }
-      if (leftrightB) {
-        Pel *piprw = prw.bufAt(0, p.height / 2);
-
-        for (int y = 1; y < p.height / 2; y++) {
-          for (int x = 0; x < xmargin; x++) {
-            if (x < xoffset) {
-              piprw[-x - 1] = piprw[-x - 1 + xoffset];
-              piprw[prw.width + x] = piprw[prw.width + x - xoffset];
-            } else {
-              piprw[-x - 1] = piprw[0];
-              piprw[prw.width + x] = piprw[prw.width - 1];
-            }
-          }
-          piprw += p.stride;
-        }
-      }
-
-      if (bottom) {
-        Pel *piprw = prw.bufAt(0, prw.height - 1);
-
-        for (int x = 0; x < xmargin; x++) {
-          if (x < xoffset) {
-            piprw[-x - 1] = piprw[-x - 1 + xoffset];
-            piprw[prw.width + x] = piprw[prw.width + x - xoffset];
-          } else {
-            piprw[-x - 1] = piprw[0];
-            piprw[prw.width + x] = piprw[prw.width - 1];
-          }
-        }
-        piprw -= xmargin;
-        // pi is now the (-marginX, height-1)
-        for (int y = 0; y < ymargin; y++) {
-          ::memcpy(piprw + (y + 1) * prw.stride, piprw, sizeof(Pel) * (prw.width + (xmargin << 1)));
-        }
-      }
-      if (top) {
-        Pel *piprw = prw.bufAt(0, 0);
-
-        for (int x = 0; x < xmargin; x++) {
-          if (x < xoffset) {
-            piprw[-x - 1] = piprw[-x - 1 + xoffset];
-            piprw[prw.width + x] = piprw[prw.width + x - xoffset];
-          } else {
-            piprw[-x - 1] = piprw[0];
-            piprw[prw.width + x] = piprw[prw.width - 1];
-          }
-        }
-        piprw -= xmargin;
-        // pi is now (-marginX, 0)
-        for (int y = 0; y < ymargin; y++) {
-          ::memcpy(piprw - (y + 1) * prw.stride, piprw, sizeof(Pel) * (prw.width + (xmargin << 1)));
-        }
-      }
     }
 
     if (leftrightT) {
+#if ADAPTIVE_BIT_DEPTH
+      Pel *pi = p.bufAt(0, 1, m_bytePerPixel);
+#else
       Pel *pi = p.bufAt(0, 1);
+#endif
       paddPicBorderLeftRight(pi, p.stride, p.width, xmargin, 1 + p.height / 2);
     }
     if (leftrightB) {
+#if ADAPTIVE_BIT_DEPTH
+      Pel *pi = p.bufAt(0, p.height / 2, m_bytePerPixel);
+#else
       Pel *pi = p.bufAt(0, p.height / 2);
+#endif
       paddPicBorderLeftRight(pi, p.stride, p.width, xmargin, 1 + p.height / 2);
     }
     if (bottom) {
       // pi is now the (0,height) (bottom left of image within bigger picture
+#if ADAPTIVE_BIT_DEPTH
+      Pel *pi = p.bufAt(0, p.height - 1, m_bytePerPixel);
+#else
       Pel *pi = p.bufAt(0, p.height - 1);
+#endif
       paddPicBorderBot(pi, p.stride, p.width, xmargin, ymargin);
     }
     if (top) {
       // pi is now the (0,height) (bottom left of image within bigger picture
+#if ADAPTIVE_BIT_DEPTH
+      Pel *pi = p.bufAt(0, 0, m_bytePerPixel);
+#else
       Pel *pi = p.bufAt(0, 0);
+#endif
       paddPicBorderTop(pi, p.stride, p.width, xmargin, ymargin);
     }
   }

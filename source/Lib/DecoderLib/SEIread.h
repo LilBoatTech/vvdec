@@ -66,8 +66,8 @@ class SEIReader : public VLCReader {
  public:
   SEIReader(){};
   virtual ~SEIReader(){};
-  void parseSEImessage(InputBitstream *bs, SEIMessages &seis, const NalUnitType nalUnitType,
-                       const uint32_t nuh_layer_id, const uint32_t temporalId, const VPS *vps, const SPS *sps, HRD &hrd,
+  void parseSEImessage(InputBitstream *bs, SEIMessages &seis, const NalUnitType nalUnitType, const uint32_t nuh_layer_id,
+                       const uint32_t temporalId, const VPS *vps, const SPS *sps, HRD &hrd,
                        std::ostream *pDecodedMessageOutputStream);
 
  protected:

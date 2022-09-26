@@ -50,7 +50,8 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifndef DECLIB_RECON_H
 #define DECLIB_RECON_H
-
+#include <thread>  // using std::thread
+#include "DecLib.h"
 #include "CommonLib/CommonDef.h"
 #include "CommonLib/Picture.h"
 #include "CommonLib/RdCost.h"
@@ -59,7 +60,9 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include "CommonLib/AdaptiveLoopFilter.h"
 #include "CommonLib/SampleAdaptiveOffset.h"
 
-#include "Utilities/NoMallocThreadPool.h"
+//#include "Utilities/NoMallocThreadPool.h"
+#include "Utilities/threadpool.h"
+#include "Utilities/threading.h"
 
 class DecLibRecon;
 class IntraPrediction;
@@ -72,52 +75,38 @@ class DecCu;
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
-
-enum TaskType {
-  /*TRAFO=-1,*/ MIDER,
-  LF_INIT,
-  INTER,
-  INTRA,
-  RSP,
-  LF_V,
-  LF_H,
-  PRESAO,
-  SAO,
-  ALF,
-  DONE,
-  DMVR
-};
-using CtuState = std::atomic<TaskType>;
-
-struct CommonTaskParam {
-  DecLibRecon& decLib;
-  CodingStructure* cs = nullptr;
-  std::vector<CtuState> ctuStates;
-  std::vector<MotionHist> perLineMiHist;
-  std::vector<Barrier> dmvrTriggers;
-
-  bool doALF = true;
-  Barrier alfPrepared;
-
-  explicit CommonTaskParam(DecLibRecon* dec) : decLib(*dec) {}
-  void reset(CodingStructure& cs, TaskType ctuStartState, int tasksPerLine, bool doALF);
-};
-
-struct LineTaskParam {
-  CommonTaskParam& common;
-  int line;
-};
-
-struct CtuTaskParam {
-  CommonTaskParam& common;
-  int line;
-  int col;
-  int numColPerTask;
-  int numTasksPerLine;
+using vvdec::VVDecCondVar;
+struct CTURowSync {
+  std::mutex lock;
+  volatile bool active;
+  volatile bool busy;
+  volatile uint32_t completed;
+  void init() {
+    active = false;
+    busy = false;
+    completed = 0;
+  }
 };
 
 /// decoder class
-class DecLibRecon {
+class DecLibRecon : public vvdec::VVDecWorkProducer {
+    std::atomic_uint32_t* m_rowDependencyBitmap; 
+    std::atomic_uint32_t* m_frameParseRowBitmap;
+    //RWLock m_mutex;
+
+    // number of words in the bitmap
+    int m_numWords;
+
+    int m_numRows;
+
+public:
+    // called before decoding each frame
+    bool initBitmap(int numRows);
+
+   
+    void enableRow(int row);
+    void markRowCanBeProcessed(int row);
+    void doWork(int threadId);
  private:
   // functional classes
   IntraPrediction* m_cIntraPred = nullptr;
@@ -126,22 +115,27 @@ class DecLibRecon {
   DecCu* m_cCuDecoder = nullptr;
   RdCost m_cRdCost;
   Reshape* m_cReshaper = nullptr;  ///< reshaper class
+  std::thread* m_cFrameThread = nullptr;
   LoopFilter m_cLoopFilter;
   SampleAdaptiveOffset m_cSAO;
   AdaptiveLoopFilter m_cALF;
 
   int m_numDecThreads = 0;
-  NoMallocThreadPool* m_decodeThreadPool;
+  // NoMallocThreadPool* m_decodeThreadPool;
+  vvdec::VVDecThreadPool* m_threadPool;
+  PelStorage m_tmpBuf;
+  DecLib* m_decLib = nullptr;
 
   Picture* m_currDecompPic = nullptr;
 #if TRACE_ENABLE_ITT
   __itt_domain* m_itt_decInst = nullptr;
 #endif
 
-  CommonTaskParam commonTaskParam{this};
-  std::vector<LineTaskParam> tasksDMVR;
-  std::vector<CtuTaskParam> tasksCtu;
-  CBarrierVec picBarriers;
+  int m_currFuncBitDepth;
+  // int m_numRows;
+  int m_numRowCTUs = 0;
+  CTURowSync* m_rowSync = nullptr;
+  CTURowSync* m_filterRowSync = nullptr;
 
  public:
   DecLibRecon();
@@ -149,18 +143,38 @@ class DecLibRecon {
   DecLibRecon(const DecLibRecon&) = delete;
   DecLibRecon(const DecLibRecon&&) = delete;
 
-  void create(NoMallocThreadPool* threadPool, unsigned instanceId);
+  void create(unsigned instanceId, DecLib* decLib, vvdec::VVDecThreadPool* pool, bool createFrameThreads);
   void destroy();
 
+  void updateFuncPtr(Picture* pcPic);
   void decompressPicture(Picture* pcPic);
   Picture* waitForPrevDecompressedPic();
   Picture* getCurrPic() const { return m_currDecompPic; }
+  void deriveMV(int x, int y, int tid);
 
  private:
   void borderExtPic(Picture* pic);
-
-  template <bool checkReadyState = false>
-  static bool ctuTask(int tid, CtuTaskParam* param);
+  void threadProc();
+  DecSlice m_cSliceDecoder;
+  bool m_bExitThread = false;
+  VVDecCondVar m_sEnableBarrier;
+  VVDecCondVar m_sDoneBarrier;
+  VVDecCondVar m_allRowDone;
+  vvdec::VVDecThreadCounter m_rowComplete;
+  std::vector<MotionHist> m_sPerLineMiHist;
+  void waitRererencePictureReady(int row);
+  void decodeCTU(int x, int y, int tid);
+  void reshapeCTU(CodingStructure& cs, int x, int y, int tid);
+  void dbfHCTU(CodingStructure& cs, int x, int y, int tid);
+  void saoCTU(CodingStructure& cs, int x, int y, int tid);
+  void processRowRecon(int row, int threadId);
+  void processRowFilter(int row, int threadId);
+  void activeRow(int row);
+  void activeFilterRow(int row);
+  bool checkRowShouldContinue(int row);
+  bool checkFilterRowShouldContinue(int row);
+  void decodeFrameWithThreadPool();
+  void decodeFrame();
 };
 
 //! \}

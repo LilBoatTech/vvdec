@@ -53,13 +53,16 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "CommonDef.h"
 
-#if ENABLE_SIMD_TCOEFF_OPS
 struct TCoeffOps {
   TCoeffOps();
 
-  void initTCoeffOps();
+  void initTCoeffOps(int bitDepth);
+
+#if ENABLE_SIMD_TCOEFF_OPS
+  void initTCoeffOpsX86(int bitDepth);
   template <X86_VEXT vext>
-  void _initTCoeffOps();
+  void _initTCoeffOpsX86(int bitDepth);
+#endif
 
   void (*cpyResi8)(const TCoeff *src, Pel *dst, ptrdiff_t stride, unsigned width, unsigned height);
   void (*cpyResi4)(const TCoeff *src, Pel *dst, ptrdiff_t stride, unsigned width, unsigned height);
@@ -71,11 +74,11 @@ struct TCoeffOps {
                      const TCoeff outputMax, const TCoeff round, const TCoeff shift);
   void (*roundClip8)(TCoeff *dst, unsigned width, unsigned height, unsigned stride, const TCoeff outputMin,
                      const TCoeff outputMax, const TCoeff round, const TCoeff shift);
+  void (*invLfnstNxN)(int *src, int *dst, const uint32_t mode, const uint32_t index, const uint32_t size,
+                      int zeroOutSize);
 };
 
 extern TCoeffOps g_tCoeffOps;
-
-#endif
 
 ////DCT-II transforms
 void fastInverseDCT2_B2(const TCoeff *src, TCoeff *dst, int shift, int line, int iSkipLine, int iSkipLine2,

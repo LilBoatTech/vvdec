@@ -70,9 +70,8 @@ static int _writeComponentToFile(std::ostream *f, vvdec::Component *comp, uint32
   assert(f != NULL);
 
   if (comp->m_uiBytesPerSample == 2) {
-    unsigned short *p = reinterpret_cast<unsigned short *>(comp->m_pucBuffer);
-    if (uiBytesPerSample == 1)  // cut to 8bit output
-    {
+    uint16_t *p = reinterpret_cast<uint16_t *>(comp->m_pucBuffer);
+    if (uiBytesPerSample == 1) {  // cut to 8bit output
       // 8bit > 16bit conversion
       std::vector<unsigned char> tmp;
       tmp.resize(uiWidth);
@@ -95,7 +94,7 @@ static int _writeComponentToFile(std::ostream *f, vvdec::Component *comp, uint32
     uint8_t *p = comp->m_pucBuffer;
     if (uiBytesPerSample == 2) {
       // 8bit > 16bit conversion
-      std::vector<short> tmp;
+      std::vector<int16_t> tmp;
       tmp.resize(uiWidth);
 
       for (uint32_t y = 0; y < uiHeight; y++) {
@@ -163,7 +162,7 @@ static int readBitstreamFromFile(std::ifstream *f, vvdec::AccessUnit *pcAccessUn
   }
 
   // jump over possible start code
-  f->read((char *)pBuf, 5);
+  f->read(reinterpret_cast<char *>(pBuf), 5);
   size_t extracted = f->gcount();
   if (extracted < 4) {
     if (bLoop) {
@@ -173,7 +172,7 @@ static int readBitstreamFromFile(std::ifstream *f, vvdec::AccessUnit *pcAccessUn
         return -1;
       }
 
-      f->read((char *)pBuf, 5);
+      f->read(reinterpret_cast<char *>(pBuf), 5);
       size_t extracted = f->gcount();
       if (extracted < 4) {
         return -1;
@@ -217,7 +216,7 @@ static int readBitstreamFromFile(std::ifstream *f, vvdec::AccessUnit *pcAccessUn
       pBuf = pcAccessUnit->m_pucBuffer;
     }
     unsigned char *p = pBuf + pos;
-    f->read((char *)p, 1);
+    f->read(reinterpret_cast<char *>(p), 1);
     pos++;
 
     info3 = retrieveNalStartCode(&pBuf[pos - 4], 3);

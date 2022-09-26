@@ -268,8 +268,10 @@ struct TransformUnit : public UnitArea {
   ChannelType chType;
   uint8_t jointCbCr;
   int8_t cbf;
-
+  Pel* residuals[MAX_NUM_TBLOCKS];
   TransformUnit() : chType(CH_L) {}
+  PelBuf getResiBuf(int compID) { return PelBuf(residuals[compID], blocks[compID].size()); }
+  const CPelBuf getResiBuf(int compID) const { return PelBuf(residuals[compID], blocks[compID].size()); }
 };
 
 // ---------------------------------------------------------------------------
@@ -431,6 +433,7 @@ struct CodingUnit : public UnitArea {
   CMotionBuf getMotionBuf() const;
 
   void minInit(const UnitArea& unit);
+  void setupPredBuf(Pel* predBuffer);
 };
 
 typedef CodingUnit PredictionUnit;

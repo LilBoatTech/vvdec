@@ -73,9 +73,7 @@ bool isDualITree(const CodingUnit &cu);
 bool isSameCtu(const CodingUnit &cu, const CodingUnit &cu2);
 bool isSameSlice(const CodingUnit &cu, const CodingUnit &cu2);
 bool isSameTile(const CodingUnit &cu, const CodingUnit &cu2);
-#if JVET_O1143_SUBPIC_BOUNDARY
 bool isSameSubPic(const CodingUnit &cu, const CodingUnit &cu2);
-#endif
 uint32_t getCtuAddr(const CodingUnit &cu);
 
 int predictQP(const CodingUnit &cu, const int prevQP);
@@ -112,23 +110,18 @@ uint8_t checkAllowedSbt(const CodingUnit &cu);
 PartSplit getSplitAtDepth(const CodingUnit &cu, const unsigned depth);
 bool checkCCLMAllowed(const CodingUnit &cu);
 bool getRprScaling(const SPS *sps, const PPS *curPPS, const PPS *refPPS, int &xScale, int &yScale);
-#if JVET_R0058
 void checkConformanceILRP(Slice *slice);
-#endif
+void waitForReferencePictureReady(const CodingUnit &cu);
 }  // namespace CU
 // PU tools
 namespace PU {
 int getLMSymbolList(const PredictionUnit &pu, int *pModeList);
 int getIntraMPMs(const PredictionUnit &pu, unsigned *mpm, const ChannelType &channelType = CHANNEL_TYPE_LUMA);
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
 bool isDMChromaMIP(const PredictionUnit &pu);
-#endif
 int getMipSizeId(const PredictionUnit &pu);
 uint32_t getIntraDirLuma(const PredictionUnit &pu);
 void getIntraChromaCandModes(const PredictionUnit &pu, unsigned modeList[NUM_CHROMA_MODE]);
-#if JVET_R0350_MIP_CHROMA_444_SINGLETREE
 const PredictionUnit &getCoLocatedLumaPU(const PredictionUnit &pu);
-#endif
 uint32_t getFinalIntraMode(const PredictionUnit &pu, const ChannelType &chType);
 uint32_t getCoLocatedIntraLumaMode(const PredictionUnit &pu);
 int getWideAngIntraMode(const TransformUnit &tu, const uint32_t dirMode, const ComponentID compID);

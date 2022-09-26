@@ -76,8 +76,10 @@ TimeProfiler2D* g_timeProfiler = nullptr;
 
 //! \ingroup CommonLib
 //! \{
-
-std::atomic<int> romInitialized(0);
+//!
+std::mutex romMutex;
+std::atomic<int>
+    romInitialized(0);
 
 MsgLevel g_verbosity = VERBOSE;
 
@@ -271,6 +273,7 @@ void initROM() {
   //     to them into each class/function that needs them.
   //  B: For really const values just precalculate them all and put them intot a header
   //     to include everywhere where needed.
+  std::lock_guard<std::mutex> lk(romMutex);  // for multiple
   if (romInitialized > 0) {
     romInitialized++;
     return;
@@ -295,12 +298,15 @@ void initROM() {
           const CoeffScanType scanType = CoeffScanType(scanTypeIndex);
 
           CHECK(g_scanOrder[SCAN_UNGROUPED][scanType][blockWidthIdx][blockHeightIdx], "already initialized");
+          CHECK(g_rasterOrder[SCAN_UNGROUPED][scanType][blockWidthIdx][blockHeightIdx], "already initialized");
           g_scanOrder[SCAN_UNGROUPED][scanType][blockWidthIdx][blockHeightIdx] = new uint32_t[totalValues];
+          g_rasterOrder[SCAN_UNGROUPED][scanType][blockWidthIdx][blockHeightIdx] = new uint32_t[totalValues];
 
           ScanGenerator fullBlockScan(blockWidth, blockHeight, blockWidth, scanType);
           for (uint32_t scanPosition = 0; scanPosition < totalValues; scanPosition++) {
             const int rasterPos = fullBlockScan.GetNextIndex(0, 0);
             g_scanOrder[SCAN_UNGROUPED][scanType][blockWidthIdx][blockHeightIdx][scanPosition] = rasterPos;
+            g_rasterOrder[SCAN_UNGROUPED][scanType][blockWidthIdx][blockHeightIdx][rasterPos] = scanPosition;
           }
         }
 
@@ -323,10 +329,13 @@ void initROM() {
           const CoeffScanType scanType = CoeffScanType(scanTypeIndex);
 
           CHECK(g_scanOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx], "already initialized");
+          CHECK(g_rasterOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx], "already initialized");
           g_scanOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx] = new uint32_t[totalValues];
+          g_rasterOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx] = new uint32_t[totalValues];
           if (blockWidth > JVET_C0024_ZERO_OUT_TH || blockHeight > JVET_C0024_ZERO_OUT_TH) {
             for (uint32_t i = 0; i < totalValues; i++) {
               g_scanOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][i] = totalValues - 1;
+              g_rasterOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][totalValues - 1] = i;
             }
           }
 
@@ -345,6 +354,8 @@ void initROM() {
               const int rasterPos = groupScan.GetNextIndex(groupOffsetX, groupOffsetY);
               g_scanOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][groupOffsetScan + scanPosition] =
                   rasterPos;
+              g_rasterOrder[SCAN_GROUPED_4x4][scanType][blockWidthIdx][blockHeightIdx][rasterPos] =
+                  groupOffsetScan + scanPosition;
             }
 
             fullBlockScan.GetNextIndex(0, 0);
@@ -383,6 +394,7 @@ void initROM() {
 }
 
 void destroyROM() {
+  std::lock_guard<std::mutex> lk(romMutex);  // for multiple
   romInitialized--;
   if (romInitialized > 0) {
     return;
@@ -405,7 +417,9 @@ void destroyROM() {
       for (uint32_t blockWidthIdx = 0; blockWidthIdx < numWidths; blockWidthIdx++) {
         for (uint32_t blockHeightIdx = 0; blockHeightIdx < numHeights; blockHeightIdx++) {
           delete[] g_scanOrder[groupTypeIndex][scanOrderIndex][blockWidthIdx][blockHeightIdx];
+          delete[] g_rasterOrder[groupTypeIndex][scanOrderIndex][blockWidthIdx][blockHeightIdx];
           g_scanOrder[groupTypeIndex][scanOrderIndex][blockWidthIdx][blockHeightIdx] = nullptr;
+          g_rasterOrder[groupTypeIndex][scanOrderIndex][blockWidthIdx][blockHeightIdx] = nullptr;
         }
       }
     }
@@ -476,6 +490,8 @@ const UnitScale g_miScaling(MIN_CU_LOG2, MIN_CU_LOG2);
 // scanning order table
 uint32_t* g_scanOrder[SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_LOG2_TU_SIZE_PLUS_ONE]
                      [MAX_LOG2_TU_SIZE_PLUS_ONE];
+uint32_t* g_rasterOrder[SCAN_NUMBER_OF_GROUP_TYPES][SCAN_NUMBER_OF_TYPES][MAX_LOG2_TU_SIZE_PLUS_ONE]
+                       [MAX_LOG2_TU_SIZE_PLUS_ONE];
 uint32_t* g_coefTopLeftDiagScan8x8[MAX_CU_SIZE / 2 + 1];
 uint8_t* g_coefTopLeftDiagScan8x8pos[MAX_CU_SIZE / 2 + 1];
 

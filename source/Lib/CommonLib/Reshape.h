@@ -75,7 +75,7 @@ class Reshape {
   uint16_t m_initCW;
   std::vector<Pel> m_reshapePivot;
   std::vector<Pel> m_inputPivot;
-  std::vector<int32_t> m_fwdScaleCoef;
+  std::vector<Pel> m_fwdScaleCoef;
   std::vector<int32_t> m_invScaleCoef;
   int m_lumaBD;
   int m_reshapeLUTSize;
@@ -91,8 +91,8 @@ class Reshape {
   void destroy();
 
   void initSlice(Slice* pcSlice);
-  void rspLine(CodingStructure& cs, int ln, const int offset) const;
   void rspCtu(CodingStructure& cs, int col, int ln, const int offset) const;
+  void fwdRSP(Pel* ptr, ptrdiff_t stride, int w, int h);
 
   const Pel* getFwdLUT() const { return m_fwdLUT; }
   const Pel* getInvLUT() const { return m_invLUT; }
@@ -105,8 +105,11 @@ class Reshape {
   void copySliceReshaperInfo(SliceReshapeInfo& tInfo, SliceReshapeInfo& sInfo);
 
   void constructReshaper();
-  int calculateChromaAdjVpduNei(TransformUnit& tu, const Position pos);
-  void setVPDULoc(int x, int y) { m_vpduX = x, m_vpduY = y; }
+  int calculateChromaAdjVpduNei(TransformUnit& tu, const Position pos, int bytePerPixel);
+  void setVPDULoc(int x, int y) {
+    m_vpduX = x;
+    m_vpduY = y;
+  }
   bool isVPDUprocessed(int x, int y) { return ((x == m_vpduX) && (y == m_vpduY)); }
   void setChromaScale(int chromaScale) { m_chromaScale = chromaScale; }
   int getChromaScale() { return m_chromaScale; }

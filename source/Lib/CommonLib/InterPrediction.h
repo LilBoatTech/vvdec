@@ -73,8 +73,6 @@ class Mv;
 
 class InterPrediction : public WeightPrediction {
  protected:
-  InterpolationFilter m_if;
-
   Pel* m_acYuvPred[NUM_REF_PIC_LIST_01][MAX_NUM_COMPONENT];
   Pel* m_filteredBlockTmp[2 * NUM_REF_PIC_LIST_01][MAX_NUM_COMPONENT];
 
@@ -84,7 +82,7 @@ class InterPrediction : public WeightPrediction {
 
   int m_iRefListIdx = -1;
   PelStorage m_geoPartBuf;
-  Mv m_storedMv[(MAX_CU_SIZE * MAX_CU_SIZE) >> (MIN_CU_LOG2 << 1)];
+  Mv m_storedMv[2][(MAX_CU_SIZE * MAX_CU_SIZE) >> (MIN_CU_LOG2 << 1)];
 
   Pel* m_gradX0 = nullptr;
   Pel* m_gradY0 = nullptr;
@@ -119,6 +117,9 @@ class InterPrediction : public WeightPrediction {
   void applyBiOptFlow(const PredictionUnit& pu, const PelUnitBuf& yuvSrc0, const PelUnitBuf& yuvSrc1,
                       const int& refIdx0, const int& refIdx1, PelUnitBuf& yuvDst, const BitDepths& clipBitDepths);
 
+  void xPredInterBiPred(const PredictionUnit& pu, PelUnitBuf& pcYuvPred, PelUnitBuf& pcMbBuf0, PelUnitBuf& pcMbBuf1,
+                        const bool& bi, const bool& bioApplied, const bool luma, const bool chroma);
+
   void xPredInterUni(const PredictionUnit& pu, const RefPicList& eRefPicList, PelUnitBuf& pcYuvPred, const bool& bi,
                      const bool& bioApplied, const bool luma, const bool chroma);
   void xPredInterBi(PredictionUnit& pu, PelUnitBuf& pcYuvPred);
@@ -127,6 +128,12 @@ class InterPrediction : public WeightPrediction {
                      bool bi, const ClpRng& clpRng, bool bioApplied, bool isIBC, bool wrapRef, SizeType dmvrWidth = 0,
                      SizeType dmvrHeight = 0, bool bilinearMC = false, Pel* srcPadBuf = NULL,
                      ptrdiff_t srcPadStride = 0);
+
+  template <bool altSrc, bool altSize, typename TSrc, typename TDst>
+  void xPredInterBlkImp(const ComponentID& compID, const PredictionUnit& pu, const Picture* refPic, Mv mv,
+                        PelBuf& dstPic, bool bi, const ClpRng& clpRng, bool bioApplied, bool isIBC, bool wrapRef,
+                        SizeType dmvrWidth, SizeType dmvrHeight, bool bilinearMC, Pel* srcPadBuf,
+                        ptrdiff_t srcPadStride);
 
   void (*BiOptFlow)(const Pel* srcY0, const Pel* srcY1, const Pel* gradX0, const Pel* gradX1, const Pel* gradY0,
                     const Pel* gradY1, const int width, const int height, Pel* dstY, const ptrdiff_t dstStride,
@@ -159,10 +166,11 @@ class InterPrediction : public WeightPrediction {
   void destroy();
 
  public:
+  InterpolationFilter m_if;
   InterPrediction();
   virtual ~InterPrediction();
 
-  void init(RdCost* pcRdCost, ChromaFormat chromaFormatIDC, const int ctuSize);
+  void init(RdCost* pcRdCost, ChromaFormat chromaFormatIDC, const int ctuSize, bool bEnableIBC);
 
   // inter
   void motionCompensation(PredictionUnit& pu, PelUnitBuf& predBuf, const bool luma = true, const bool chroma = true);
@@ -170,16 +178,15 @@ class InterPrediction : public WeightPrediction {
   void motionCompensationGeo(PredictionUnit& pu, PelUnitBuf& predBuf);
   void weightedGeoBlk(PredictionUnit& pu, const uint8_t splitDir, int32_t channel, PelUnitBuf& predDst,
                       PelUnitBuf& predSrc0, PelUnitBuf& predSrc1);
-  void xPrefetch(PredictionUnit& pu, PelUnitBuf& pcPad, RefPicList refId, bool forLuma);
-  void xPad(PredictionUnit& pu, PelUnitBuf& pcPad, RefPicList refId, bool forLuma);
-  void xFinalPaddedMCForDMVR(PredictionUnit& pu, PelUnitBuf& pcYuvSrc0, PelUnitBuf& pcYuvSrc1, PelUnitBuf& pcPad0,
-                             PelUnitBuf& pcPad1, const bool bioApplied, const Mv startMV[NUM_REF_PIC_LIST_01]);
+  void xPrefetchAndPad(PredictionUnit& pu, PelUnitBuf& pcPad, RefPicList refId, bool forLuma);
+  void xFinalPaddedMCForDMVR(PredictionUnit& pu, PelUnitBuf& pcYuvSrc0, PelUnitBuf& pcYuvSrc1, PelUnitBuf& subPredBuf,
+                             PelUnitBuf& pcPad0, PelUnitBuf& pcPad1, const bool bioApplied,
+                             const Mv startMV[NUM_REF_PIC_LIST_01], BitDepths bds, const ClpRngs& clpRngs);
   void xBIPMVRefine(DistParam& cDistParam, const Pel* pRefL0, const Pel* pRefL1, uint64_t& minCost, int16_t* deltaMV,
                     uint64_t* pSADsArray);
   void xinitMC(PredictionUnit& pu, const ClpRngs& clpRngs);
   void xProcessDMVR(PredictionUnit& pu, PelUnitBuf& pcYuvDst, const ClpRngs& clpRngs, const bool bioApplied);
   static bool isSubblockVectorSpreadOverLimit(int a, int b, int c, int d, int predType);
-  void xFillIBCBuffer(CodingUnit& cu);
 #if JVET_O1170_CHECK_BV_AT_DECODER
   void resetIBCBuffer(const ChromaFormat chromaFormatIDC, const int ctuSize);
   void resetVPDUforIBC(const ChromaFormat chromaFormatIDC, const int ctuSize, const int vSize, const int xPos,
@@ -192,11 +199,16 @@ class InterPrediction : public WeightPrediction {
                         const int dstWidth, const int dstHeight, Pel* dst, const ptrdiff_t dstStride, const bool bi,
                         const bool wrapRef, const ClpRng& clpRng, const int filterIndex,
                         const bool useAltHpelIf = false);
-#if ENABLE_SIMD_OPT_BIO
 
-  void initInterPredictionX86();
+  void initInterPrediction(int bitDepth);
+#if ENABLE_SIMD_OPT_BIO
+  void initInterPredictionX86(int bitDepth);
   template <X86_VEXT vext>
-  void _initInterPredictionX86();
+  void _initInterPredictionX86(int bitDepth);
+#endif
+
+#if ADAPTIVE_BIT_DEPTH
+  int m_bytePerPixel;
 #endif
 };
 

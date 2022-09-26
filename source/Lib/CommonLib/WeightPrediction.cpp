@@ -69,8 +69,8 @@ void WeightPrediction::getWpScaling(const Slice *pcSlice, const int &iRefIdx0, c
   const bool bBiPred = (iRefIdx0 >= 0 && iRefIdx1 >= 0);
   const bool bUniPred = !bBiPred;
 
-  WPScalingParam *wp0org;
-  WPScalingParam *wp1org;
+  WPScalingParam *wp0org = nullptr;
+  WPScalingParam *wp1org = nullptr;
 
   if (bUniPred || wpBiPred) {
     // explicit --------------------
@@ -175,24 +175,14 @@ void WeightPrediction::addWeightBi(const PelUnitBuf &pcYuvSrc0, const PelUnitBuf
     const int iWidth = rpcYuvDst.bufs[compID].width;
 
     if ((iWidth & 7) == 0) {
-      g_pelBufOP.wghtAvg8(pSrc0, iSrc0Stride, pSrc1, iSrc1Stride, pDst, iDstStride, iWidth, iHeight, shift, applyOffset,
-                          w0, w1, clpRngs);
+      g_pelBufOP.wghtAvgw8(pSrc0, iSrc0Stride, pSrc1, iSrc1Stride, pDst, iDstStride, iWidth, iHeight, shift,
+                           applyOffset, w0, w1, clpRngs);
     } else if ((iWidth & 3) == 0)
-      g_pelBufOP.wghtAvg4(pSrc0, iSrc0Stride, pSrc1, iSrc1Stride, pDst, iDstStride, iWidth, iHeight, shift, applyOffset,
-                          w0, w1, clpRngs);
+      g_pelBufOP.wghtAvgw4(pSrc0, iSrc0Stride, pSrc1, iSrc1Stride, pDst, iDstStride, iWidth, iHeight, shift,
+                           applyOffset, w0, w1, clpRngs);
     else {
-      CHECK(iWidth != 2, "Should only happen for width '2'");
-
-      for (int y = iHeight - 1; y >= 0; y--) {
-        pDst[0] = weightBidir(w0, pSrc0[0], w1, pSrc1[0], round, shift, offset, clpRng);
-        ;
-        pDst[1] = weightBidir(w0, pSrc0[1], w1, pSrc1[1], round, shift, offset, clpRng);
-        ;
-
-        pSrc0 += iSrc0Stride;
-        pSrc1 += iSrc1Stride;
-        pDst += iDstStride;
-      }  // y loop
+      g_pelBufOP.wghtAvg(pSrc0, iSrc0Stride, pSrc1, iSrc1Stride, pDst, iDstStride, iWidth, iHeight, shift, applyOffset,
+                         w0, w1, clpRngs);
     }
   }  // compID loop
 }

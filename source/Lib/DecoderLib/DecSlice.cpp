@@ -50,12 +50,14 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "DecSlice.h"
 
+#include "CommonLib/SampleAdaptiveOffset.h"
 #include "CommonLib/TrQuant.h"
 #include "CommonLib/UnitTools.h"
 #include "CommonLib/dtrace_next.h"
 #include "CommonLib/TimeProfiler.h"
 #include "CommonLib/AdaptiveLoopFilter.h"
-
+#include "DecLibRecon.h"
+#include "DecLib.h"
 #include <vector>
 
 //! \ingroup DecoderLib
@@ -65,7 +67,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId) {
+void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId, DecLibRecon* recon) {
   PROFILER_SCOPE_AND_STAGE_EXT(1, g_timeProfiler, P_CONTROL_PARSE_DERIVE_LL, *slice->getPic()->cs, CH_L);
   const unsigned numSubstreams = slice->getNumberOfSubstreamSizes() + 1;
   // Table of extracted substreams.
@@ -85,19 +87,11 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
   const int startCtuTsAddr = slice->getFirstCtuRsAddrInSlice();
   const unsigned widthInCtus = cs.pcv->widthInCtus;
   const bool wavefrontsEnabled = cs.sps->getEntropyCodingSyncEnabledFlag();
-#if JVET_R0165_OPTIONAL_ENTRY_POINT
   const bool entryPointPresent = cs.sps->getEntryPointsPresentFlag();
-#else
-  const bool wavefrontsEntryPointPresent = cs.sps->getEntropyCodingSyncEntryPointsPresentFlag();
-#endif
 
   if (startCtuTsAddr == 0) {
-    cs.picture->resizeccAlfFilterControl(cs.pcv->sizeInCtus);
-    cs.picture->resizeAlfCtuEnableFlag(cs.pcv->sizeInCtus);
-    cs.picture->resizeAlfCtbFilterIndex(cs.pcv->sizeInCtus);
-    cs.picture->resizeAlfCtuAlternative(cs.pcv->sizeInCtus);
+    cs.picture->resizeCtuAlfData(cs.pcv->sizeInCtus);
   }
-
   AdaptiveLoopFilter::reconstructCoeffAPSs(*slice);
 
   CABACDecoder cabacDecoder;
@@ -110,10 +104,16 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
     cs.initStructData();
   }
 
+  const uint32_t log2SaoOffsetScaleLuma =
+      (uint32_t)std::max(0, cs.sps->getBitDepth(CHANNEL_TYPE_LUMA) - MAX_SAO_TRUNCATED_BITDEPTH);
+  const uint32_t log2SaoOffsetScaleChroma =
+      (uint32_t)std::max(0, cs.sps->getBitDepth(CHANNEL_TYPE_CHROMA) - MAX_SAO_TRUNCATED_BITDEPTH);
+  cabacReader.setUpSAOBitDepth(log2SaoOffsetScaleLuma, log2SaoOffsetScaleChroma);
+
   // Quantization parameter
   pic->m_prevQP[0] = pic->m_prevQP[1] = slice->getSliceQp();
 
-  CHECK(pic->m_prevQP[0] == std::numeric_limits<int>::max(), "Invalid previous QP");
+  CHECK(pic->m_prevQP[0] == std::numeric_limits<int>::max(), "parse slice: Invalid previous QP");
 
   DTRACE(g_trace_ctx, D_HEADER, "=========== POC: %d ===========\n", slice->getPOC());
 
@@ -132,7 +132,6 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
     const unsigned maxCUSize = sps->getMaxCUWidth();
     Position pos(ctuXPosInCtus * maxCUSize, ctuYPosInCtus * maxCUSize);
     UnitArea ctuArea(cs.area.chromaFormat, Area(pos.x, pos.y, maxCUSize, maxCUSize));
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
     const SubPic& curSubPic = slice->getPPS()->getSubPicFromPos(pos);
     // padding/restore at slice level
     if (slice->getPPS()->getNumSubPics() >= 2 && curSubPic.getTreatedAsPicFlag() && ctuIdx == 0) {
@@ -144,16 +143,7 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
         int n = slice->getNumRefIdx((RefPicList)rlist);
         for (int idx = 0; idx < n; idx++) {
           Picture* refPic = slice->getRefPic((RefPicList)rlist, idx);
-#  if JVET_R0058
-#    if JVET_S0258_SUBPIC_CONSTRAINTS
-          if (!refPic->getSubPicSaved() && refPic->subPictures.size() > 1)
-#    else
-          if (!refPic->getSubPicSaved() && refPic->numSubpics > 1)
-#    endif
-#  else
-          if (!refPic->getSubPicSaved())
-#  endif
-          {
+          if (!refPic->getSubPicSaved() && refPic->subPictures.size() > 1) {
             refPic->saveSubPicBorder(refPic->getPOC(), subPicX, subPicY, subPicWidth, subPicHeight);
             refPic->extendSubPicBorder(refPic->getPOC(), subPicX, subPicY, subPicWidth, subPicHeight);
             refPic->setSubPicSaved(true);
@@ -161,7 +151,6 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
         }
       }
     }
-#endif
 
     DTRACE_UPDATE(g_trace_ctx, std::make_pair("ctu", ctuRsAddr));
 
@@ -181,7 +170,7 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
         cabacReader.initCtxModels(*slice);
       }
       if (cs.getCURestricted(pos.offset(0, -1), pos, slice->getIndependentSliceIdx(), tileIdx, CH_L)) {
-        cabacReader.getCtx() = m_entropyCodingSyncContextState[threadId];  // TODO: sync this
+        cabacReader.getCtx() = m_entropyCodingSyncContextState;  // TODO: sync this
       }
       pic->m_prevQP[0] = pic->m_prevQP[1] = slice->getSliceQp();
     }
@@ -190,13 +179,16 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
 
     cabacReader.coding_tree_unit(cs, slice, ctuArea, pic->m_prevQP, ctuRsAddr);
 
+    if (recon != nullptr) {
+      recon->deriveMV(ctuXPosInCtus, ctuYPosInCtus, threadId);
+    }
     if (ctuXPosInCtus == tileXPosInCtus && wavefrontsEnabled) {
-      m_entropyCodingSyncContextState[threadId] = cabacReader.getCtx();  // TODO: sync this
+      m_entropyCodingSyncContextState = cabacReader.getCtx();  // TODO: sync this
     }
 
     if (ctuIdx == slice->getNumCtuInSlice() - 1) {
       unsigned binVal = cabacReader.terminating_bit();
-      CHECK(!binVal, "Expecting a terminating bit");
+      CHECK(!binVal, "parse slice: Expecting a terminating bit");
 #if DECODER_CHECK_SUBSTREAM_AND_SLICE_TRAILING_BYTES
       cabacReader.remaining_bytes(false);
 #endif
@@ -205,23 +197,16 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
       // The sub-stream/stream should be terminated after this CTU.
       // (end of slice-segment, end of tile, end of wavefront-CTU-row)
       unsigned binVal = cabacReader.terminating_bit();
-      CHECK(!binVal, "Expecting a terminating bit");
+      CHECK(!binVal, "parse slice: Expecting a terminating bit 2");
 
-#if JVET_R0165_OPTIONAL_ENTRY_POINT
-      if (entryPointPresent)
-#else
-      bool isLastTileCtu =
-          (ctuXPosInCtus + 1 == tileXPosInCtus + tileColWidth) && (ctuYPosInCtus + 1 == tileYPosInCtus + tileRowHeight);
-      if (isLastTileCtu || wavefrontsEntryPointPresent)
-#endif
-      {
+      if (entryPointPresent) {
 #if DECODER_CHECK_SUBSTREAM_AND_SLICE_TRAILING_BYTES
         cabacReader.remaining_bytes(true);
 #endif
         subStrmId++;
       }
     }
-#if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
+
     if (slice->getPPS()->getNumSubPics() >= 2 && curSubPic.getTreatedAsPicFlag() &&
         ctuIdx == (slice->getNumCtuInSlice() - 1))
     // for last Ctu in the slice
@@ -241,13 +226,6 @@ void DecSlice::parseSlice(Slice* slice, InputBitstream* bitstream, int threadId)
         }
       }
     }
-#endif
-#if RECO_WHILE_PARSE
-
-    pic->ctuParsedBarrier[ctuRsAddr].unlock();
-#endif
-
-    if (ctuRsAddr + 1 == pic->cs->pcv->sizeInCtus) pic->parseDone.unlock();
   }
 }
 

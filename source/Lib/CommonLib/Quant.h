@@ -102,17 +102,11 @@ class Quant {
 
   void setUseScalingList(bool bUseScalingList) { m_scalingListEnabledFlag = bUseScalingList; };
 #if JVET_P0365_SCALING_MATRIX_LFNST
-#  if JVET_R0380_SCALING_MATRIX_DISABLE_YCC_OR_RGB
   bool getUseScalingList(bool isTransformSkip, const bool lfnstApplied, const bool disableScalingMatrixForLFNSTBlks,
                          const bool disableSMforACT) {
     return (m_scalingListEnabledFlag && !isTransformSkip && (!lfnstApplied || !disableScalingMatrixForLFNSTBlks) &&
             !disableSMforACT);
   }
-#  else
-  bool getUseScalingList(bool isTransformSkip, const bool lfnstApplied, const bool disableScalingMatrixForLFNSTBlks) {
-    return (m_scalingListEnabledFlag && !isTransformSkip && (!lfnstApplied || !disableScalingMatrixForLFNSTBlks));
-  }
-#  endif
 #else
   bool getUseScalingList(bool isTransformSkip) { return m_scalingListEnabledFlag && !isTransformSkip; };
 #endif
@@ -125,6 +119,14 @@ class Quant {
 
   // initialize class
   virtual void init(Slice *slice);
+
+  void initQuant(int bitDepth);
+
+#if ENABLE_SIMD_OPT_QUANT
+  void initQuantX86(int bitDepth);
+  template <X86_VEXT vext>
+  void _initQuantX86(int bitDepth);
+#endif
 
  public:
   // de-quantization
@@ -148,13 +150,6 @@ class Quant {
   void (*DeQuantPCM)(const int maxX, const int restX, const int maxY, const int scale, TCoeff *const piQCoef,
                      const size_t piQCfStride, TCoeff *const piCoef, const int rightShift, const int inputMaximum,
                      const TCoeff transformMaximum);
-
-#if ENABLE_SIMD_OPT_QUANT
-  void initQuantX86();
-  template <X86_VEXT vext>
-  void _initQuantX86();
-
-#endif
 
 };  // END CLASS DEFINITION Quant
 

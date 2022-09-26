@@ -67,6 +67,7 @@ class CABACReader {
   void initCtxModels(Slice& slice);
   void initBitstream(InputBitstream* bitstream) {
     m_Bitstream = bitstream;
+    m_Bitstream->inputZeroByte();
     m_BinDecoder.init(m_Bitstream);
   }
   const Ctx& getCtx() const { return m_BinDecoder.getCtx(); }
@@ -83,11 +84,9 @@ class CABACReader {
 
   // sao (clause 7.3.11.3)
   void sao(CodingStructure& cs, unsigned ctuRsAddr);
+  void readAlf(CodingStructure& cs, unsigned ctuRsAddr, const Partitioner& partitioner);
 
-  void readAlfCtuFilterIndex(CodingStructure& cs, unsigned ctuRsAddr);
-
-  void ccAlfFilterControlIdc(CodingStructure& cs, const ComponentID compID, const int curIdx, uint8_t* filterControlIdc,
-                             Position lumaPos, int filterCount);
+  short readAlfCtuFilterIndex2(CodingStructure& cs, unsigned ctuRsAddr);
 
   // coding (quad)tree (clause 7.3.11.4)
   bool coding_tree(CodingStructure& cs, Partitioner& pm, CUCtx& cuCtx);
@@ -148,14 +147,18 @@ class CABACReader {
   void mts_idx(CodingUnit& cu, CUCtx& cuCtx);
   void residual_lfnst_mode(CodingUnit& cu, CUCtx& cuCtx);
   void isp_mode(CodingUnit& cu);
-  int last_sig_coeff(CoeffCodingContext& cctx, TransformUnit& tu, ComponentID compID);
-  template <bool checkBnd>
-  int residual_coding_subblock(CoeffCodingContext& cctx, TCoeffSig* coeff, const int stateTransTable, int& state,
-                               unsigned& signVal, int*& sigPos, unsigned& stateVal);
+  int last_sig_coeff(TransformUnit& tu, ComponentID compID, int width, int height, int log2BlockWidth,
+                     int log2BlockHeight);
+  void residual_coding_normal(TransformUnit& tu, ComponentID compID, CUCtx& cuCtx);
   void residual_codingTS(TransformUnit& tu, ComponentID compID);
-  void residual_coding_subblockTS(CoeffCodingContext& cctx, TCoeffSig* coeff, CoeffSigBuf dstcoeff, int& maxX,
-                                  int& maxY);
   void joint_cb_cr(TransformUnit& tu, const int cbfMask);
+
+  static inline unsigned templateAbsSum(int blkPos, const TCoeffSig* coeff, int baseLevel, int width, int height,
+                                        int log2BlockWidth);
+  static inline unsigned sigCtxIdAbs(const uint8_t* nbCoeff, const int state, const int diag, int width,
+                                     ChannelType chType, int& tmplCpDiag, int& tmplCpSum1);
+
+  static inline uint8_t ctxOffsetAbs(ChannelType chType, int tmplCpDiag, int tmplCpSum1);
 
  private:
   unsigned unary_max_symbol(unsigned ctxId0, unsigned ctxIdN, unsigned maxSymbol);
@@ -167,16 +170,26 @@ class CABACReader {
   void xReadTruncBinCode(uint32_t& symbol, uint32_t maxSymbol);
 
  public:
+  void setUpSAOBitDepth(int lumaBit, int chromaBit) {
+    m_offsetStepLog2[0] = lumaBit;
+    m_offsetStepLog2[1] = chromaBit;
+    m_offsetStepLog2[2] = chromaBit;
+  }
+
  private:
-  TCoeffSig m_cffTmp[(MAX_TU_SIZE_FOR_PROFILE + 2) * (MAX_TU_SIZE_FOR_PROFILE + 2)];
+  TCoeffSig m_cffTmp[MAX_TU_SIZE_FOR_PROFILE * MAX_TU_SIZE_FOR_PROFILE];
 
   unsigned m_signVal[256];
   int m_numSig[256];
   unsigned m_sub1[256];
   int m_blkPos[MAX_TU_SIZE_FOR_PROFILE * MAX_TU_SIZE_FOR_PROFILE];
+
   BinDecoder& m_BinDecoder;
   InputBitstream* m_Bitstream;
   Slice* m_slice;
+  uint8_t m_nbCoeff[(64 + 2) * (64 + 2)];  // 64: MAX TU SIZE
+  // std::array<uint32_t, MAX_NUM_COMPONENT> m_offsetStepLog2;  // offset step
+  uint32_t m_offsetStepLog2[3];
 };
 
 class CABACDecoder {

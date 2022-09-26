@@ -55,6 +55,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <iomanip>
 #include <limits>
+#include <stack>
 
 #if defined(__INTEL_COMPILER)
 #  pragma warning(disable : 1786)
@@ -233,7 +234,7 @@ static const int MAX_NUM_APS_TYPE = 8;  // Currently APS Type has 3 bits so the 
 static const int MAX_TILE_COLS = 20;  ///< Maximum number of tile columns
 static const int MAX_TILES = 440;     ///< Maximum number of tiles
 static const int MAX_SLICES = 600;    ///< Maximum number of slices per picture
-static const int MLS_GRP_NUM = 1024;  ///< Max number of coefficient groups, max(16, 256)
+static const int MLS_GRP_NUM = 256;   ///< Max number of coefficient groups, max(16, 256)
 
 static const int MLS_CG_SIZE = 4;  ///< Coefficient group size of 4x4; = MLS_CG_LOG2_WIDTH + MLS_CG_LOG2_HEIGHT
 
@@ -294,7 +295,7 @@ static const int MAX_QP_OFFSET_LIST_SIZE = 6;  ///< Maximum size of QP offset li
 static const int MAX_NUM_CQP_MAPPING_TABLES =
     3;  ///< Maximum number of chroma QP mapping tables (Cb, Cr and joint Cb-Cr)
 static const int MIN_QP_VALUE_FOR_16_BIT = -48;  ////< Minimum value for QP (-6*(bitdepth - 8) ) for bit depth 16 ;
-                                                 ///actual minimum QP value is bit depth dependent
+                                                 /// actual minimum QP value is bit depth dependent
 static const int MAX_NUM_QP_VALUES =
     MAX_QP + 1 - MIN_QP_VALUE_FOR_16_BIT;  ////< Maximum number of QP values possible - bit depth dependent
 
@@ -439,9 +440,11 @@ typedef ClpRngTemplate<Pel> ClpRng;
 
 struct ClpRngs : ClpRng {};
 
+// template <typename T> constexpr inline T Clip3  ( const T minVal, const T maxVal, const T a) { return std::min<T>
+// (std::max<T> (minVal, a) , maxVal); }  ///< general min/max clip
 template <typename T>
 constexpr inline T Clip3(const T minVal, const T maxVal, const T a) {
-  return std::min<T>(std::max<T>(minVal, a), maxVal);
+  return (a > maxVal) ? maxVal : (a < minVal) ? minVal : a;
 }  ///< general min/max clip
 template <typename T>
 constexpr inline T ClipBD(const T x, const int bitDepth) {
@@ -471,7 +474,7 @@ inline void msg(MsgLevel level, const char* fmt, ...) {
 
 #if ALIGNED_MALLOC
 #  if (_WIN32 && (_MSC_VER > 1300)) || defined(__MINGW64_VERSION_MAJOR)
-#    define xMalloc(type, len) _aligned_malloc(sizeof(type) * (len), MEMORY_ALIGN_DEF_SIZE)
+#    define xMalloc(type, len) (type*)_aligned_malloc(sizeof(type) * (len), MEMORY_ALIGN_DEF_SIZE)
 #    define xFree(ptr) _aligned_free(ptr)
 #  elif defined(__MINGW32__)
 #    define xMalloc(type, len) __mingw_aligned_malloc(sizeof(type) * (len), MEMORY_ALIGN_DEF_SIZE)
@@ -531,8 +534,6 @@ T* aligned_malloc(size_t len, size_t alignement) {
       defined(_MSC_VER)
 #    define TARGET_SIMD_X86
 typedef enum { SCALAR = 0, SSE41, SSE42, AVX, AVX2, AVX512 } X86_VEXT;
-#  elif defined(__ARM_NEON__)
-#    define TARGET_SIMD_ARM 1
 #  else
 #    error no simd target
 #  endif
@@ -575,13 +576,15 @@ static inline unsigned long _bit_scan_reverse(long a) {
 
 #endif
 #if ENABLE_SIMD_LOG2 && defined(TARGET_SIMD_X86)
-static inline int getLog2(long val) { return _bit_scan_reverse(val); }
+static inline int getLog2(int val) { return _bit_scan_reverse(val); }
+#elif __has_builtin(__builtin_clz) || defined(__has_builtin__builtin_clz)
+static inline int getLog2(int val) { return __builtin_clz(val) ^ 31; }
 #else
 #  include <cmath>
 extern int8_t g_aucLog2[MAX_CU_SIZE + 1];
-static inline int getLog2(long val) {
+static inline int getLog2(int val) {
   CHECKD(g_aucLog2[2] != 1, "g_aucLog2[] has not been initialized yet.");
-  if (val > 0 && val < (int)sizeof(g_aucLog2)) {
+  if (val < (int)sizeof(g_aucLog2)) {
     return g_aucLog2[val];
   }
   return std::log2(val);

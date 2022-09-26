@@ -118,20 +118,12 @@ bool wrapClipMv(Mv& rcMv, const Position& pos, const struct Size& size, const SP
   int mvX = rcMv.getHor();
 
   if (mvX > iHorMax) {
-#  if JVET_Q0764_WRAP_AROUND_WITH_RPR
     mvX -= (pps.getWrapAroundOffset() << iMvShift);
-#  else
-    mvX -= (sps.getWrapAroundOffset() << iMvShift);
-#  endif
     mvX = std::min(iHorMax, std::max(iHorMin, mvX));
     wrapRef = false;
   }
   if (mvX < iHorMin) {
-#  if JVET_Q0764_WRAP_AROUND_WITH_RPR
     mvX += (pps.getWrapAroundOffset() << iMvShift);
-#  else
-    mvX += (sps.getWrapAroundOffset() << iMvShift);
-#  endif
     mvX = std::min(iHorMax, std::max(iHorMin, mvX));
     wrapRef = false;
   }
@@ -147,12 +139,7 @@ void clipMv(Mv& rcMv, const Position& pos, const SPS& sps, const PPS& pps, const
 }
 
 void clipMv(int& mvx, int& mvy, const Position& pos, const SPS& sps, const PPS& pps, const int w, const int h) {
-#  if JVET_Q0764_WRAP_AROUND_WITH_RPR
-  if (pps.getUseWrapAround())
-#  else
-  if (sps.getUseWrapAround())
-#  endif
-  {
+  if (pps.getUseWrapAround()) {
     wrapClipMv(mvx, mvy, pos, Size(w, h), sps, pps);
     return;
   }
@@ -165,19 +152,7 @@ void clipMv(int& mvx, int& mvy, const Position& pos, const SPS& sps, const PPS& 
 
   int iVerMax = (pps.getPicHeightInLumaSamples() + iOffset - (int)pos.y - 1) << iMvShift;
   int iVerMin = (-(int)sps.getMaxCUHeight() - iOffset - (int)pos.y + 1) << iMvShift;
-#  if JVET_O1143_MV_ACROSS_SUBPIC_BOUNDARY
 
-  if (sps.getSubPicInfoPresentFlag()) {
-    const SubPic& curSubPic = pps.getSubPicFromPos(pos);
-    if (curSubPic.getTreatedAsPicFlag()) {
-      iHorMax = (curSubPic.getSubPicWidthInLumaSample() + iOffset - (int)pos.x - 1) << iMvShift;
-      iHorMin = (-(int)sps.getMaxCUWidth() - iOffset - ((int)pos.x - curSubPic.getSubPicLeft()) + 1) << iMvShift;
-
-      iVerMax = (curSubPic.getSubPicHeightInLumaSample() + iOffset - (int)pos.y - 1) << iMvShift;
-      iVerMin = (-(int)sps.getMaxCUHeight() - iOffset - ((int)pos.y - curSubPic.getSubPicTop()) + 1) << iMvShift;
-    }
-  }
-#  endif
   mvx = std::min(iHorMax, std::max(iHorMin, mvx));
   mvy = std::min(iVerMax, std::max(iVerMin, mvy));
 }

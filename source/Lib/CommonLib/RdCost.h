@@ -69,6 +69,7 @@ class EncCfg;
 
 // for function pointer
 typedef Distortion (*FpDistFunc)(const DistParam&);
+typedef void (*FpDistFuncX5)(const DistParam&, Distortion*, bool);
 
 // ====================================================================================================================
 // Class definition
@@ -80,6 +81,7 @@ class DistParam {
   CPelBuf org;
   CPelBuf cur;
   FpDistFunc distFunc;
+  FpDistFuncX5 distFuncX5;
   int bitDepth;
 
   // (vertical) subsampling shift (for reducing complexity)
@@ -93,20 +95,23 @@ class RdCost {
  private:
   // for distortion
 
-  static FpDistFunc m_afpDistortFunc[DF_TOTAL_FUNCTIONS];  // [eDFunc]
+  FpDistFunc m_afpDistortFunc[DF_TOTAL_FUNCTIONS];         // [eDFunc]
+  FpDistFuncX5 m_afpDistortFuncX5[DF_TOTAL_FUNCTIONS_X5];  // [eDFunc], X5 means to calculate 5 costs at one time
 
  public:
   RdCost();
   ~RdCost();
 
+  void initRdCost(int bitDepth);
+
 #ifdef TARGET_SIMD_X86
-  void initRdCostX86();
+  void initRdCostX86(int bitDepth);
   template <X86_VEXT vext>
-  void _initRdCostX86();
+  void _initRdCostX86(int bitDepth);
 #endif
 
-  static void setDistParam(DistParam& rcDP, const Pel* pOrg, const Pel* piRefY, ptrdiff_t iOrgStride,
-                           ptrdiff_t iRefStride, int bitDepth, int width, int height, int subShiftMode = 0);
+  void setDistParam(DistParam& rcDP, const Pel* pOrg, const Pel* piRefY, ptrdiff_t iOrgStride, ptrdiff_t iRefStride,
+                    int bitDepth, int width, int height, int subShiftMode = 0);
 
  private:
   static Distortion xGetSAD(const DistParam& pcDtParam);
@@ -117,11 +122,27 @@ class RdCost {
   static Distortion xGetSAD64(const DistParam& pcDtParam);
   static Distortion xGetSAD16N(const DistParam& pcDtParam);
 
+  template <int iWidth, bool use16N>
+  static void xGetSADX5(const DistParam& rcDtParam, Distortion* cost, bool isCalCentrePos);
+
 #ifdef TARGET_SIMD_X86
+  template <int iWidth, X86_VEXT vext>
+  static Distortion xGetSAD_16NxN_SIMD(const DistParam& pcDtParam);
   template <X86_VEXT vext>
   static Distortion xGetSAD_16xN_SIMD(const DistParam& pcDtParam);
+  template <X86_VEXT vext>
+  static Distortion xGetSAD_8xN_SIMD(const DistParam& pcDtParam);
+  template <X86_VEXT vext>
+  static Distortion xGetSAD_4xN_SIMD(const DistParam& pcDtParam);
+
+  template <X86_VEXT vext>
+  static void xGetSADX5_4xN_SIMD(const DistParam& rcDtParam, Distortion* cost, bool isCalCentrePos);
+  template <X86_VEXT vext>
+  static void xGetSADX5_8xN_SIMD(const DistParam& rcDtParam, Distortion* cost, bool isCalCentrePos);
+  template <X86_VEXT vext>
+  static void xGetSADX5_16xN_SIMD(const DistParam& rcDtParam, Distortion* cost, bool isCalCentrePos);
   template <int iWidth, X86_VEXT vext>
-  static Distortion xGetSAD_NxN_SIMD(const DistParam& pcDtParam);
+  static void xGetSADX5_16NxN_SIMD(const DistParam& rcDtParam, Distortion* cost, bool isCalCentrePos);
 #endif
 };  // END CLASS DEFINITION RdCost
 

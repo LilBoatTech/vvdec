@@ -60,7 +60,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "CommonLib/CommonDef.h"
 #include "CommonLib/BitStream.h"
-
+class DecLibRecon;
 //! \ingroup DecoderLib
 //! \{
 
@@ -72,17 +72,15 @@ THE POSSIBILITY OF SUCH DAMAGE.
 class DecSlice {
  private:
   // access channel
-  std::vector<Ctx> m_entropyCodingSyncContextState;  ///< context storage for state of contexts at the
-                                                     ///< wavefront/WPP/entropy-coding-sync second CTU of tile-row
+  Ctx m_entropyCodingSyncContextState;  ///< context storage for state of contexts at the
+                                        ///< wavefront/WPP/entropy-coding-sync second CTU of tile-row
 
  public:
   DecSlice() = default;
   virtual ~DecSlice() = default;
 
-  void parseSlice(Slice* slice, InputBitstream* bitstream, int threadId);
-
-  void setContextStateVec(int numDecThreads) { m_entropyCodingSyncContextState.resize(std::max(1, numDecThreads)); }
-  void destroy() { m_entropyCodingSyncContextState.clear(); }
+  void parseSlice(Slice* slice, InputBitstream* bitstream, int threadId, DecLibRecon* recon);
+  // void unlockSlice(Slice* slice);
 };
 
 //! \}

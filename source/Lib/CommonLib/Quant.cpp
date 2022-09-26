@@ -89,8 +89,7 @@ QpParam::QpParam(const TransformUnit &tu, const ComponentID &compIDX, const bool
     const PPS &pps = *tu.cu->slice->getPPS();
     int chromaQpOffset = pps.getQpOffset(jCbCr);
     chromaQpOffset += tu.cu->slice->getSliceChromaQpDelta(jCbCr);
-    chromaQpOffset +=
-        pps.getPpsRangeExtension().getChromaQpOffsetListEntry(tu.cu->chromaQpAdj).u.offset[int(jCbCr) - 1];
+    chromaQpOffset += pps.getChromaQpOffsetListEntry(tu.cu->chromaQpAdj).u.offset[int(jCbCr) - 1];
 
     int qpi = Clip3(-qpBdOffset, MAX_QP, qpy);
     baseQp = sps.getMappedChromaQpValue(jCbCr, qpi);
@@ -146,8 +145,7 @@ static void DeQuantCore(const int maxX, const int restX, const int maxY, const i
       }
       n += restX;
     }
-  } else  // rightshift <0
-  {
+  } else {  // rightshift <0
     int leftShift = -rightShift;
     for (int y = 0, n = 0; y <= maxY; y++) {
       for (int x = 0; x <= maxX; x++, n++) {
@@ -202,14 +200,12 @@ static void DeQuantPCMCore(const int maxX, const int restX, const int maxY, cons
   }
 }
 
-Quant::Quant() {
-  xInitScalingList(nullptr);
+void Quant::initQuant(int bitDepth) {
   DeQuant = DeQuantCore;
   DeQuantPCM = DeQuantPCMCore;
-#if ENABLE_SIMD_OPT_QUANT
-  initQuantX86();
-#endif
 }
+
+Quant::Quant() { xInitScalingList(nullptr); }
 
 Quant::~Quant() { xDestroyScalingList(); }
 
@@ -217,7 +213,7 @@ void invResDPCM(const TransformUnit &tu, const ComponentID &compID, CoeffBuf &ds
   const CompArea &rect = tu.blocks[compID];
   const int wdt = rect.width;
   const int hgt = rect.height;
-  const CCoeffSigBuf coeffs = tu.cu->cs->getRecoBuf(tu.block(compID));
+  const CCoeffSigBuf coeffs = tu.getResiBuf(compID);  // tu.cu->cs->getRecoBuf( tu.block( compID ) );
 
   const int maxLog2TrDynamicRange = tu.cu->cs->sps->getMaxLog2TrDynamicRange(toChannelType(compID));
   const TCoeff inputMinimum = -(1 << maxLog2TrDynamicRange);
@@ -252,7 +248,7 @@ void invResDPCM(const TransformUnit &tu, const ComponentID &compID, CoeffBuf &ds
 void Quant::dequant(const TransformUnit &tu, CoeffBuf &dstCoeff, const ComponentID &compID, const QpParam &cQP) {
   const SPS *sps = tu.cu->cs->sps.get();
   const CompArea &area = tu.blocks[compID];
-  const CCoeffSigBuf coeffBuf = tu.cu->cs->getRecoBuf(tu.block(compID));
+  const CCoeffSigBuf coeffBuf = tu.getResiBuf(compID);
   const TCoeffSig *const piQCoef = coeffBuf.buf;
   const size_t piQCfStride = coeffBuf.stride;
   TCoeff *const piCoef = dstCoeff.buf;
@@ -265,14 +261,10 @@ void Quant::dequant(const TransformUnit &tu, CoeffBuf &dstCoeff, const Component
   const bool disableSMForLFNST =
       tu.cu->slice->getExplicitScalingListUsed() ? sps->getDisableScalingMatrixForLfnstBlks() : false;
   const bool isLfnstApplied = tu.cu->lfnstIdx() > 0 && (CU::isSepTree(*tu.cu) ? true : isLuma(compID));
-#  if JVET_R0380_SCALING_MATRIX_DISABLE_YCC_OR_RGB
   const bool disableSMForACT = tu.cu->cs->sps->getScalingMatrixForAlternativeColourSpaceDisabledFlag() &&
                                tu.cu->cs->sps->getScalingMatrixDesignatedColourSpaceFlag() == tu.cu->colorTransform();
   const bool enableScalingLists =
       getUseScalingList(isTransformSkip, isLfnstApplied, disableSMForLFNST, disableSMForACT);
-#  else
-  const bool enableScalingLists = getUseScalingList(isTransformSkip, isLfnstApplied, disableSMForLFNST);
-#  endif
 #else
   const bool enableScalingLists = getUseScalingList(isTransformSkip);
 #endif

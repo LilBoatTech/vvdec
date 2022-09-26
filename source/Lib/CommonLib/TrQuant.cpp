@@ -74,7 +74,7 @@ InvTrans *fastInvTrans[NUM_TRANS_TYPE][g_numTransformMatrixSizes] = {
 //! \ingroup CommonLib
 //! \{
 
-static inline int64_t square(const int d) { return d * (int64_t)d; }
+// static inline int64_t square( const int d ) { return d * (int64_t)d; }
 
 template <int signedMode>
 void invTransformCbCr(PelBuf &resCb, PelBuf &resCr) {
@@ -143,31 +143,6 @@ void TrQuant::xDeQuant(const TransformUnit &tu, CoeffBuf &dstCoeff, const Compon
 
 void TrQuant::init(Slice *slice) { Quant::init(slice); }
 
-void TrQuant::invLfnstNxN(int *src, int *dst, const uint32_t mode, const uint32_t index, const uint32_t size,
-                          int zeroOutSize) {
-  int maxLog2TrDynamicRange = 15;
-  const TCoeff outputMinimum = -(1 << maxLog2TrDynamicRange);
-  const TCoeff outputMaximum = (1 << maxLog2TrDynamicRange) - 1;
-  const int8_t *trMat = (size > 4) ? g_lfnst8x8[mode][index][0] : g_lfnst4x4[mode][index][0];
-  const int trSize = (size > 4) ? 48 : 16;
-  int resi;
-  int *out = dst;
-
-  CHECK(index > 2, "wrong");
-
-  for (int j = 0; j < trSize; j++, trMat++) {
-    resi = 0;
-    const int8_t *trMatTmp = trMat;
-    int *srcPtr = src;
-
-    for (int i = 0; i < zeroOutSize; i++, trMatTmp += trSize) {
-      resi += *srcPtr++ * *trMatTmp;
-    }
-
-    *out++ = Clip3(outputMinimum, outputMaximum, (int)(resi + 64) >> 7);
-  }
-}
-
 uint32_t TrQuant::getLFNSTIntraMode(int wideAngPredMode) {
   uint32_t intraMode;
 
@@ -226,8 +201,8 @@ void TrQuant::xInvLfnst(TransformUnit &tu, const ComponentID &compID) {
       *dst++ = coeffTemp[scan[y]];
     }
 
-    invLfnstNxN(m_tempInMatrix, m_tempOutMatrix, g_lfnstLut[intraMode], lfnstIdx - 1, sbSize,
-                (tu4x4Flag || tu8x8Flag) ? 8 : 16);
+    g_tCoeffOps.invLfnstNxN(m_tempInMatrix, m_tempOutMatrix, g_lfnstLut[intraMode], lfnstIdx - 1, sbSize,
+                            (tu4x4Flag || tu8x8Flag) ? 8 : 16);
 
     lfnstTemp = m_tempOutMatrix;  // inverse spectral rearrangement
 
@@ -433,10 +408,7 @@ void TrQuant::xIT(const TransformUnit &tu, const ComponentID &compID, const CCoe
                                                  clipMaximum);
   }
 
-#if ENABLE_SIMD_TCOEFF_OPS
-  if (width & 3)
-#endif  // ENABLE_SIMD_TCOEFF_OPS
-  {
+  if (width & 3) {
     Pel *dst = pResidual.buf;
     ptrdiff_t stride = pResidual.stride;
 
@@ -447,14 +419,11 @@ void TrQuant::xIT(const TransformUnit &tu, const ComponentID &compID, const CCoe
 
       dst += stride;
     }
-  }
-#if ENABLE_SIMD_TCOEFF_OPS
-  else if (width & 7) {
+  } else if (width & 7) {
     g_tCoeffOps.cpyResi4(block, pResidual.buf, pResidual.stride, width, height);
   } else {
     g_tCoeffOps.cpyResi8(block, pResidual.buf, pResidual.stride, width, height);
   }
-#endif  // ENABLE_SIMD_TCOEFF_OPS
 }
 
 /** Wrapper function between HM interface and core NxN transform skipping

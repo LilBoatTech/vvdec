@@ -51,7 +51,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <UnitTools.h>
+#include "UnitTools.h"
 #include "CommonLib/TimeProfiler.h"
 //! \ingroup CommonLib
 //! \{
@@ -67,20 +67,25 @@ Reshape::Reshape() {
   m_chromaScale = 1 << CSCALE_FP_PREC;
   m_vpduX = -1;
   m_vpduY = -1;
+  m_lumaBD = 0;
 }
 
 Reshape::~Reshape() { destroy(); }
 
 void Reshape::createDec(int bitDepth) {
+  if (m_lumaBD == bitDepth) {
+    return;
+  }
+  destroy();
   m_lumaBD = bitDepth;
   m_reshapeLUTSize = 1 << m_lumaBD;
   m_initCW = m_reshapeLUTSize / PIC_CODE_CW_BINS;
   if (!m_fwdLUT) {
-    m_fwdLUT = (Pel*)xMalloc(Pel, m_reshapeLUTSize + 1);
+    m_fwdLUT = (Pel *)xMalloc(Pel, m_reshapeLUTSize + 1);
     memset(m_fwdLUT, 0, (m_reshapeLUTSize + 1) * sizeof(Pel));
   }
   if (!m_invLUT) {
-    m_invLUT = (Pel*)xMalloc(Pel, m_reshapeLUTSize + 1);
+    m_invLUT = (Pel *)xMalloc(Pel, m_reshapeLUTSize + 1);
     memset(m_invLUT, 0, (m_reshapeLUTSize + 1) * sizeof(Pel));
   }
   if (m_binCW.empty()) m_binCW.resize(PIC_CODE_CW_BINS, 0);
@@ -98,7 +103,7 @@ void Reshape::destroy() {
   m_invLUT = nullptr;
 }
 
-void Reshape::initSlice(Slice* pcSlice) {
+void Reshape::initSlice(Slice *pcSlice) {
   if (pcSlice->getPicHeader()->getLmcsEnabledFlag()) {
     if (pcSlice->getNalUnitLayerId() != pcSlice->getPicHeader()->getLmcsAPS()->getLayerId()) {
       CHECK(pcSlice->getPicHeader()->getLmcsAPS()->getLayerId() > pcSlice->getNalUnitLayerId(),
@@ -122,7 +127,7 @@ void Reshape::initSlice(Slice* pcSlice) {
       }
     }
 
-    SliceReshapeInfo& sInfo = pcSlice->getPicHeader()->getLmcsAPS()->getReshaperAPSInfo();
+    SliceReshapeInfo &sInfo = pcSlice->getPicHeader()->getLmcsAPS()->getReshaperAPSInfo();
     m_sliceReshapeInfo.sliceReshaperEnableFlag = true;
     m_sliceReshapeInfo.sliceReshaperModelPresentFlag = true;
     m_sliceReshapeInfo.enableChromaAdj = pcSlice->getPicHeader()->getLmcsChromaResidualScaleFlag();
@@ -150,31 +155,16 @@ void Reshape::initSlice(Slice* pcSlice) {
   m_vpduX = -1;
 }
 
-void Reshape::rspLine(CodingStructure& cs, int ln, const int offset) const {
-  if (!(cs.sps->getUseReshaper() && m_sliceReshapeInfo.sliceReshaperEnableFlag)) {
-    return;
-  }
-  PROFILER_SCOPE_AND_STAGE_EXT(1, g_timeProfiler, P_RESHAPER, cs, CH_L);
-
-  const PreCalcValues& pcv = *cs.pcv;
-
-  const bool firstLine = ln == 0;
-
-  //  const int lh = frstLine ? pcv.maxCUHeight + ( offset ) : pcv.maxCUHeight;
-
-  int lw = pcv.lumaWidth;
-  int yPos = firstLine ? 0 : ln * pcv.maxCUHeight + offset;
-  int lh = firstLine ? pcv.maxCUHeight + offset : std::min(pcv.lumaHeight - yPos, pcv.maxCUHeight);
-  PelBuf picYuvRec = cs.getRecoBuf(COMPONENT_Y).subBuf(Position(0, yPos), Size(lw, lh));
-  picYuvRec.rspSignal(m_invLUT);
+void Reshape::fwdRSP(Pel *ptr, ptrdiff_t stride, int w, int h) {
+  g_pelBufOP.applyLut(ptr, stride, w, h, m_fwdLUT);
 }
 
-void Reshape::rspCtu(CodingStructure& cs, int col, int ln, const int offset) const {
+void Reshape::rspCtu(CodingStructure &cs, int col, int ln, const int offset) const {
   if (!(cs.sps->getUseReshaper() && m_sliceReshapeInfo.sliceReshaperEnableFlag)) {
     return;
   }
 
-  const Slice* slice = cs.getCtuData(col, ln).cuPtr[0][0]->slice;
+  const Slice *slice = cs.getCtuCuPtrData(col, ln).cuPtr[0][0]->slice;
   if (!slice->getLmcsEnabledFlag())
 
   {
@@ -183,7 +173,7 @@ void Reshape::rspCtu(CodingStructure& cs, int col, int ln, const int offset) con
 
   PROFILER_SCOPE_AND_STAGE_EXT(1, g_timeProfiler, P_RESHAPER, cs, CH_L);
 
-  const PreCalcValues& pcv = *cs.pcv;
+  const PreCalcValues &pcv = *cs.pcv;
 
   const bool firstLine = ln == 0;
 
@@ -194,8 +184,12 @@ void Reshape::rspCtu(CodingStructure& cs, int col, int ln, const int offset) con
 
   int yPos = firstLine ? 0 : ln * pcv.maxCUHeight + offset;
   int lh = firstLine ? pcv.maxCUHeight + offset : std::min(pcv.lumaHeight - yPos, pcv.maxCUHeight);
-
+#if ADAPTIVE_BIT_DEPTH
+  int bytePerPixel = cs.sps->getBitDepth(CHANNEL_TYPE_LUMA) <= 8 ? 1 : 2;
+  PelBuf picYuvRec = cs.getRecoBuf(COMPONENT_Y).subBuf(Position(xPos, yPos), Size(lw, lh), bytePerPixel);
+#else
   PelBuf picYuvRec = cs.getRecoBuf(COMPONENT_Y).subBuf(Position(xPos, yPos), Size(lw, lh));
+#endif
   picYuvRec.rspSignal(m_invLUT);
 }
 
@@ -212,8 +206,8 @@ int Reshape::calculateChromaAdj(Pel avgLuma) const {
  * \param average luma pred of TU
  * \return chroma residue scale
  */
-int Reshape::calculateChromaAdjVpduNei(TransformUnit& tu, const Position pos) {
-  CodingStructure& cs = *tu.cu->cs;
+int Reshape::calculateChromaAdjVpduNei(TransformUnit &tu, const Position pos, int bytePerPixel) {
+  CodingStructure &cs = *tu.cu->cs;
   int xPos = pos.x;
   int yPos = pos.y;
   int ctuSize = cs.sps->getCTUSize();
@@ -232,7 +226,7 @@ int Reshape::calculateChromaAdjVpduNei(TransformUnit& tu, const Position pos) {
   } else {
     setVPDULoc(xPos, yPos);
     Position topLeft(xPos, yPos);
-    CodingUnit* topLeftLuma;
+    CodingUnit *topLeftLuma;
     const CodingUnit *cuAbove, *cuLeft;
 
     topLeftLuma = cs.getCU(topLeft, CHANNEL_TYPE_LUMA);
@@ -245,17 +239,57 @@ int Reshape::calculateChromaAdjVpduNei(TransformUnit& tu, const Position pos) {
     yPos = topLeftLuma->lumaPos().y;
 
     CompArea lumaArea = CompArea(COMPONENT_Y, topLeftLuma->lumaPos(), topLeftLuma->lumaSize());
+#if ADAPTIVE_BIT_DEPTH
+    PelBuf piRecoY = cs.picture->getRecoBuf(lumaArea, false, bytePerPixel);
+#else
     PelBuf piRecoY = cs.picture->getRecoBuf(lumaArea);
+#endif
     ptrdiff_t strideY = piRecoY.stride;
     int chromaScale = (1 << CSCALE_FP_PREC);
     int lumaValue = -1;
 
-    Pel* recSrc0 = piRecoY.bufAt(0, 0);
     const uint32_t picH = tu.cu->cs->picture->lheight();
     const uint32_t picW = tu.cu->cs->picture->lwidth();
     const Pel valueDC = 1 << (tu.cu->cs->sps->getBitDepth(CHANNEL_TYPE_LUMA) - 1);
     int32_t recLuma = 0;
     int pelnum = 0;
+
+#if ADAPTIVE_BIT_DEPTH
+    if (bytePerPixel == 1) {
+      Pel8bit *recSrc0 = reinterpret_cast<Pel8bit *>(piRecoY.buf);
+      if (cuLeft != nullptr) {
+        for (int i = 0; i < numNeighbor; i++) {
+          int k = (yPos + i) >= picH ? (picH - yPos - 1) : i;
+          recLuma += recSrc0[-1 + k * strideY];
+          pelnum++;
+        }
+      }
+      if (cuAbove != nullptr) {
+        for (int i = 0; i < numNeighbor; i++) {
+          int k = (xPos + i) >= picW ? (picW - xPos - 1) : i;
+          recLuma += recSrc0[-strideY + k];
+          pelnum++;
+        }
+      }
+    } else {
+      Pel *recSrc0 = piRecoY.buf;
+      if (cuLeft != nullptr) {
+        for (int i = 0; i < numNeighbor; i++) {
+          int k = (yPos + i) >= picH ? (picH - yPos - 1) : i;
+          recLuma += recSrc0[-1 + k * strideY];
+          pelnum++;
+        }
+      }
+      if (cuAbove != nullptr) {
+        for (int i = 0; i < numNeighbor; i++) {
+          int k = (xPos + i) >= picW ? (picW - xPos - 1) : i;
+          recLuma += recSrc0[-strideY + k];
+          pelnum++;
+        }
+      }
+    }
+#else
+    Pel *recSrc0 = piRecoY.bufAt(0, 0);
     if (cuLeft != nullptr) {
       for (int i = 0; i < numNeighbor; i++) {
         int k = (yPos + i) >= picH ? (picH - yPos - 1) : i;
@@ -270,6 +304,8 @@ int Reshape::calculateChromaAdjVpduNei(TransformUnit& tu, const Position pos) {
         pelnum++;
       }
     }
+#endif
+
     if (pelnum == numNeighbor) {
       lumaValue = (recLuma + (1 << (numNeighborLog - 1))) >> numNeighborLog;
     } else if (pelnum == (numNeighbor << 1)) {
@@ -300,7 +336,7 @@ int Reshape::getPWLIdxInv(int lumaVal) const {
 \param   tInfo describing the target Slice reshaper info structure
 \param   sInfo describing the source Slice reshaper info structure
 */
-void Reshape::copySliceReshaperInfo(SliceReshapeInfo& tInfo, SliceReshapeInfo& sInfo) {
+void Reshape::copySliceReshaperInfo(SliceReshapeInfo &tInfo, SliceReshapeInfo &sInfo) {
   tInfo.sliceReshaperModelPresentFlag = sInfo.sliceReshaperModelPresentFlag;
   if (sInfo.sliceReshaperModelPresentFlag) {
     tInfo.reshaperModelMaxBinIdx = sInfo.reshaperModelMaxBinIdx;
