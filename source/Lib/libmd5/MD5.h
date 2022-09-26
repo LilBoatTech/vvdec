@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -54,23 +54,20 @@ THE POSSIBILITY OF SUCH DAMAGE.
 //! \ingroup libMD5
 //! \{
 
-static const uint32_t MD5_DIGEST_STRING_LENGTH=16;
-
+static const uint32_t MD5_DIGEST_STRING_LENGTH = 16;
 
 #ifndef __BIG_ENDIAN__
-# define byteReverse(buf, len)    /* Nothing */
+#  define byteReverse(buf, len) /* Nothing */
 #else
 void byteReverse(uint32_t *buf, unsigned len);
 /*
  * Note: this code is harmless on little-endian machines.
  */
-void byteReverse(uint32_t *buf, unsigned len)
-{
+void byteReverse(uint32_t *buf, unsigned len) {
   uint32_t t;
   do {
-    char* bytes = (char *) buf;
-    t = ((unsigned) bytes[3] << 8 | bytes[2]) << 16 |
-        ((unsigned) bytes[1] << 8 | bytes[0]);
+    char *bytes = (char *)buf;
+    t = ((unsigned)bytes[3] << 8 | bytes[2]) << 16 | ((unsigned)bytes[1] << 8 | bytes[0]);
     *buf = t;
     buf++;
   } while (--len);
@@ -79,11 +76,8 @@ void byteReverse(uint32_t *buf, unsigned len)
 
 namespace libmd5 {
 
-
-class MD5
-{
-
-public:
+class MD5 {
+ public:
   typedef struct _context_md5_t {
     uint32_t buf[4];
     uint32_t bits[2];
@@ -93,13 +87,11 @@ public:
     } in;
   } context_md5_t;
 
-
-public:
+ public:
   /**
    * initialize digest state
    */
-  MD5()
-  {
+  MD5() {
     ctx.buf[0] = 0x67452301;
     ctx.buf[1] = 0xefcdab89;
     ctx.buf[2] = 0x98badcfe;
@@ -113,18 +105,16 @@ public:
    * compute digest over buf of length len.
    * multiple calls may extend the digest over more data.
    */
-  void update(unsigned char *buf, unsigned len)
-  {
+  void update(unsigned char *buf, unsigned len) {
     uint32_t t;
 
     /* Update bitcount */
 
     t = ctx.bits[0];
-    if ((ctx.bits[0] = t + ((uint32_t) len << 3)) < t)
-      ctx.bits[1]++;        /* Carry from low to high */
+    if ((ctx.bits[0] = t + ((uint32_t)len << 3)) < t) ctx.bits[1]++; /* Carry from low to high */
     ctx.bits[1] += len >> 29;
 
-    t = (t >> 3) & 0x3f;    /* Bytes already in shsInfo->data */
+    t = (t >> 3) & 0x3f; /* Bytes already in shsInfo->data */
 
     /* Handle any leading odd-sized chunks */
 
@@ -152,7 +142,7 @@ public:
       len -= 64;
     }
 
-      /* Handle any remaining bytes of data. */
+    /* Handle any remaining bytes of data. */
 
     memcpy(ctx.in.b8, buf, len);
   }
@@ -160,8 +150,7 @@ public:
   /**
    * flush any outstanding MD5 data, write the digest into digest.
    */
-  void finalize(unsigned char digest[MD5_DIGEST_STRING_LENGTH])
-  {
+  void finalize(unsigned char digest[MD5_DIGEST_STRING_LENGTH]) {
     unsigned count;
     unsigned char *p;
 
@@ -196,40 +185,34 @@ public:
     ctx.in.b32[15] = ctx.bits[1];
 
     MD5Transform(ctx.buf, ctx.in.b32);
-    byteReverse((uint32_t *) ctx.buf, 4);
+    byteReverse((uint32_t *)ctx.buf, 4);
     memcpy(digest, ctx.buf, 16);
 
-    memset(&ctx, 0, sizeof( ctx));    /* In case it's sensitive */
+    memset(&ctx, 0, sizeof(ctx)); /* In case it's sensitive */
     /* The original version of this code omitted the asterisk. In
        effect, only the first part of ctx was wiped with zeros, not
        the whole thing. Bug found by Derek Jones. Original line: */
     // memset(ctx, 0, sizeof(ctx));    /* In case it's sensitive */
   }
 
+ private:
+/* The four core functions - F1 is optimized somewhat */
 
-private:
+/* #define F1(x, y, z) (x & y | ~x & z) */
+#define F1(x, y, z) (z ^ (x & (y ^ z)))
+#define F2(x, y, z) F1(z, x, y)
+#define F3(x, y, z) (x ^ y ^ z)
+#define F4(x, y, z) (y ^ (x | ~z))
 
-
-  /* The four core functions - F1 is optimized somewhat */
-
-  /* #define F1(x, y, z) (x & y | ~x & z) */
-  #define F1(x, y, z) (z ^ (x & (y ^ z)))
-  #define F2(x, y, z) F1(z, x, y)
-  #define F3(x, y, z) (x ^ y ^ z)
-  #define F4(x, y, z) (y ^ (x | ~z))
-
-  /* This is the central step in the MD5 algorithm. */
-  #define MD5STEP(f, w, x, y, z, data, s) \
-      ( w += f(x, y, z) + data,  w = w<<s | w>>(32-s),  w += x )
-
+/* This is the central step in the MD5 algorithm. */
+#define MD5STEP(f, w, x, y, z, data, s) (w += f(x, y, z) + data, w = w << s | w >> (32 - s), w += x)
 
   /*
    * The core of the MD5 algorithm, this alters an existing MD5 hash to
    * reflect the addition of 16 longwords of new data.  MD5Update blocks
    * the data and converts bytes into longwords for this routine.
    */
-  static void MD5Transform(uint32_t buf[4], uint32_t const in[16])
-  {
+  static void MD5Transform(uint32_t buf[4], uint32_t const in[16]) {
     uint32_t a, b, c, d;
 
     a = buf[0];
@@ -311,11 +294,10 @@ private:
     buf[3] += d;
   }
 
-private:
+ private:
   context_md5_t ctx;
 };
 
-
 //! \}
 
-} // namespace
+}  // namespace libmd5

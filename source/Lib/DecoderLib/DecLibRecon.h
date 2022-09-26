@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -73,92 +73,96 @@ class DecCu;
 // Class definition
 // ====================================================================================================================
 
-
-enum TaskType
-{
-  /*TRAFO=-1,*/ MIDER, LF_INIT, INTER, INTRA, RSP, LF_V, LF_H, PRESAO, SAO, ALF, DONE, DMVR
+enum TaskType {
+  /*TRAFO=-1,*/ MIDER,
+  LF_INIT,
+  INTER,
+  INTRA,
+  RSP,
+  LF_V,
+  LF_H,
+  PRESAO,
+  SAO,
+  ALF,
+  DONE,
+  DMVR
 };
 using CtuState = std::atomic<TaskType>;
 
-struct CommonTaskParam
-{
-  DecLibRecon&             decLib;
-  CodingStructure*         cs           = nullptr;
-  std::vector<CtuState>    ctuStates;
-  std::vector<MotionHist>  perLineMiHist;
-  std::vector<Barrier>     dmvrTriggers;
+struct CommonTaskParam {
+  DecLibRecon& decLib;
+  CodingStructure* cs = nullptr;
+  std::vector<CtuState> ctuStates;
+  std::vector<MotionHist> perLineMiHist;
+  std::vector<Barrier> dmvrTriggers;
 
-  bool                     doALF        = true;
-  Barrier                  alfPrepared;
+  bool doALF = true;
+  Barrier alfPrepared;
 
-  explicit CommonTaskParam( DecLibRecon* dec ) : decLib( *dec ) {}
-  void reset( CodingStructure& cs, TaskType ctuStartState, int tasksPerLine, bool doALF );
+  explicit CommonTaskParam(DecLibRecon* dec) : decLib(*dec) {}
+  void reset(CodingStructure& cs, TaskType ctuStartState, int tasksPerLine, bool doALF);
 };
 
-struct LineTaskParam
-{
+struct LineTaskParam {
   CommonTaskParam& common;
-  int              line;
+  int line;
 };
 
-struct CtuTaskParam
-{
+struct CtuTaskParam {
   CommonTaskParam& common;
-  int              line;
-  int              col;
-  int              numColPerTask;
-  int              numTasksPerLine;
+  int line;
+  int col;
+  int numColPerTask;
+  int numTasksPerLine;
 };
 
 /// decoder class
-class DecLibRecon
-{
-private:
+class DecLibRecon {
+ private:
   // functional classes
-  IntraPrediction*     m_cIntraPred = nullptr;
-  InterPrediction*     m_cInterPred = nullptr;
-  TrQuant*             m_cTrQuant   = nullptr;
-  DecCu*               m_cCuDecoder = nullptr;
-  RdCost               m_cRdCost;
-  Reshape*             m_cReshaper  = nullptr;   ///< reshaper class
-  LoopFilter           m_cLoopFilter;
+  IntraPrediction* m_cIntraPred = nullptr;
+  InterPrediction* m_cInterPred = nullptr;
+  TrQuant* m_cTrQuant = nullptr;
+  DecCu* m_cCuDecoder = nullptr;
+  RdCost m_cRdCost;
+  Reshape* m_cReshaper = nullptr;  ///< reshaper class
+  LoopFilter m_cLoopFilter;
   SampleAdaptiveOffset m_cSAO;
-  AdaptiveLoopFilter   m_cALF;
+  AdaptiveLoopFilter m_cALF;
 
-  int                  m_numDecThreads = 0;
-  NoMallocThreadPool*  m_decodeThreadPool;
+  int m_numDecThreads = 0;
+  NoMallocThreadPool* m_decodeThreadPool;
 
-  Picture*             m_currDecompPic = nullptr;
+  Picture* m_currDecompPic = nullptr;
 #if TRACE_ENABLE_ITT
-  __itt_domain*        m_itt_decInst = nullptr;
+  __itt_domain* m_itt_decInst = nullptr;
 #endif
 
-  CommonTaskParam            commonTaskParam{ this };
+  CommonTaskParam commonTaskParam{this};
   std::vector<LineTaskParam> tasksDMVR;
-  std::vector<CtuTaskParam>  tasksCtu;
-  CBarrierVec                picBarriers;
+  std::vector<CtuTaskParam> tasksCtu;
+  CBarrierVec picBarriers;
 
-public:
+ public:
   DecLibRecon();
   ~DecLibRecon() = default;
-  DecLibRecon( const DecLibRecon& )  = delete;
-  DecLibRecon( const DecLibRecon&& ) = delete;
+  DecLibRecon(const DecLibRecon&) = delete;
+  DecLibRecon(const DecLibRecon&&) = delete;
 
-  void create( NoMallocThreadPool* threadPool, unsigned instanceId );
+  void create(NoMallocThreadPool* threadPool, unsigned instanceId);
   void destroy();
 
-  void     decompressPicture( Picture* pcPic );
+  void decompressPicture(Picture* pcPic);
   Picture* waitForPrevDecompressedPic();
   Picture* getCurrPic() const { return m_currDecompPic; }
 
+ private:
+  void borderExtPic(Picture* pic);
 
-private:
-  void borderExtPic ( Picture* pic );
-
-  template<bool checkReadyState=false>
-  static bool ctuTask( int tid, CtuTaskParam* param );
+  template <bool checkReadyState = false>
+  static bool ctuTask(int tid, CtuTaskParam* param);
 };
 
 //! \}
 
-#endif   // DECLIB_RECON_H
+#endif  // DECLIB_RECON_H

@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -63,44 +63,25 @@ struct WPScalingParam;
 // Class definition
 // ====================================================================================================================
 /// weighting prediction class
-class WeightPrediction
-{
-public:
+class WeightPrediction {
+ public:
   WeightPrediction();
 
-  void  getWpScaling(           const Slice                *slice,
-                                const int                  &iRefIdx0,
-                                const int                  &iRefIdx1,
-                                      WPScalingParam       *wp0,
-                                      WPScalingParam       *wp1 );
+  void getWpScaling(const Slice *slice, const int &iRefIdx0, const int &iRefIdx1, WPScalingParam *wp0,
+                    WPScalingParam *wp1);
 
-  void addWeightBi(             const PelUnitBuf           &pcYuvSrc0,
-                                const PelUnitBuf           &pcYuvSrc1,
-                                const ClpRngs              &clpRngs,
-                                const WPScalingParam *const wp0,
-                                const WPScalingParam *const wp1,
-                                      PelUnitBuf           &rpcYuvDst,
-                                const bool                  bRoundLuma = true
-                                );
+  void addWeightBi(const PelUnitBuf &pcYuvSrc0, const PelUnitBuf &pcYuvSrc1, const ClpRngs &clpRngs,
+                   const WPScalingParam *const wp0, const WPScalingParam *const wp1, PelUnitBuf &rpcYuvDst,
+                   const bool bRoundLuma = true);
 
-  void  addWeightUni(           const PelUnitBuf           &pcYuvSrc0,
-                                const ClpRngs              &clpRngs,
-                                const WPScalingParam *const wp0,
-                                      PelUnitBuf           &rpcYuvDst
-                                );
+  void addWeightUni(const PelUnitBuf &pcYuvSrc0, const ClpRngs &clpRngs, const WPScalingParam *const wp0,
+                    PelUnitBuf &rpcYuvDst);
 
-  void  xWeightedPredictionUni( const PredictionUnit       &pu,
-                                const PelUnitBuf           &pcYuvSrc,
-                                const RefPicList           &eRefPicList,
-                                      PelUnitBuf           &pcYuvPred,
-                                const int                   iRefIdx=-1
-                                );
+  void xWeightedPredictionUni(const PredictionUnit &pu, const PelUnitBuf &pcYuvSrc, const RefPicList &eRefPicList,
+                              PelUnitBuf &pcYuvPred, const int iRefIdx = -1);
 
-  void  xWeightedPredictionBi(  const PredictionUnit       &pu,
-                                const PelUnitBuf           &pcYuvSrc0,
-                                const PelUnitBuf           &pcYuvSrc1,
-                                      PelUnitBuf           &pcYuvDst
-                                );
+  void xWeightedPredictionBi(const PredictionUnit &pu, const PelUnitBuf &pcYuvSrc0, const PelUnitBuf &pcYuvSrc1,
+                             PelUnitBuf &pcYuvDst);
 };
 
 #endif

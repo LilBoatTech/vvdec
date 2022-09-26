@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -47,98 +47,95 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "../../../include/vvdec/vvdec.h"
-#include "DecoderLib/DecLib.h"             // internal decoder
+#include "DecoderLib/DecLib.h"  // internal decoder
 
 namespace vvdec {
 
 /**
   \ingroup hhivvcdeclibExternalInterfaces
-  The class HhiVvcDec provides the decoder user interface. The simplest way to use the decoder is to call init() to initialize an decoder instance with the
-  the given VVCDecoderParameters. After initialization the decoding of the video is performed by using the decoder() method to hand over compressed packets (bitstream chunks) in decoding order
-  and retrieve uncompressed pictures. The decoding can be end by calling flush() that causes the decoder to finish decoding of all pending packets.
-  Finally calling uninit() releases all allocated resources held by the decoder internally.
+  The class HhiVvcDec provides the decoder user interface. The simplest way to use the decoder is to call init() to
+  initialize an decoder instance with the the given VVCDecoderParameters. After initialization the decoding of the video
+  is performed by using the decoder() method to hand over compressed packets (bitstream chunks) in decoding order and
+  retrieve uncompressed pictures. The decoding can be end by calling flush() that causes the decoder to finish decoding
+  of all pending packets. Finally calling uninit() releases all allocated resources held by the decoder internally.
 */
-class VVDecImpl
-{
-public:
+class VVDecImpl {
+ public:
   /// Constructor
   VVDecImpl();
 
   /// Destructor
   virtual ~VVDecImpl();
 
-public:
+ public:
+  int init(const VVDecParameter& rcVVDecParameter);
+  int uninit();
 
-   int init( const VVDecParameter& rcVVDecParameter );
-   int uninit();
+  int decode(AccessUnit& rcAccessUnit, Frame** ppcFrame);
 
-   int decode( AccessUnit& rcAccessUnit, Frame** ppcFrame );
+  int flush(Frame** ppcFrame);
 
-   int flush( Frame** ppcFrame );
+  int objectUnref(Frame* pcFrame);
 
-   int objectUnref( Frame* pcFrame );
+  int getNumberOfErrorsPictureHashSEI();
 
-   int getNumberOfErrorsPictureHashSEI( );
+  void clockStartTime();
+  void clockEndTime();
+  double clockGetTimeDiffMs();
 
-   void clockStartTime();
-   void clockEndTime();
-   double clockGetTimeDiffMs();
+  int setAndRetErrorMsg(int Ret);
 
-   int setAndRetErrorMsg( int Ret );
+  const char* getDecoderInfo();
+  //   const char* getDecoderCapabilities( );
 
-   const char* getDecoderInfo();
-//   const char* getDecoderCapabilities( );
+  static const char* getErrorMsg(int nRet);
+  static const char* getVersionNumber();
 
-   static const char* getErrorMsg( int nRet );
-   static const char* getVersionNumber();
+  static NalType getNalUnitType(AccessUnit& rcAccessUnit);
+  static const char* getNalUnitTypeAsString(NalType t);
 
-   static NalType getNalUnitType        ( AccessUnit& rcAccessUnit );
-   static const char* getNalUnitTypeAsString( NalType t );
+  static bool isNalUnitSlice(NalType t);
+  static bool isNalUnitSideData(NalType t);
 
-   static bool isNalUnitSlice               ( NalType t );
-   static bool isNalUnitSideData            ( NalType t );
+ private:
+  int xAddPicture(Picture* pcPic);
+  int xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_t uiWidth, uint32_t uiHeight,
+                   const BitDepths& rcBitDepths);
+  static int xRetrieveNalStartCode(unsigned char* pB, int iZerosInStartcode);
+  static int xConvertPayloadToRBSP(std::vector<uint8_t>& nalUnitBuf, InputBitstream* bitstream, bool isVclNalUnit);
+  static int xReadNalUnitHeader(InputNALUnit& nalu);
 
-private:
+  int xHandleOutput(Picture* pcPic);
 
-   int xAddPicture                  ( Picture* pcPic );
-   int xCreateFrame                 ( Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_t uiWidth, uint32_t uiHeight, const BitDepths& rcBitDepths );
-   static int xRetrieveNalStartCode ( unsigned char *pB, int iZerosInStartcode );
-   static int xConvertPayloadToRBSP ( std::vector<uint8_t>& nalUnitBuf, InputBitstream *bitstream, bool isVclNalUnit);
-   static int xReadNalUnitHeader    ( InputNALUnit& nalu );
+  static int copyComp(const unsigned char* pucSrc, unsigned char* pucDest, unsigned int uiWidth, unsigned int uiHeight,
+                      int iStrideSrc, int iStrideDest, int iBytesPerSample);
 
-   int xHandleOutput( Picture* pcPic );
+ public:
+  bool m_bInitialized = false;
 
-   static int copyComp( const unsigned char* pucSrc, unsigned char* pucDest, unsigned int uiWidth, unsigned int uiHeight, int iStrideSrc, int iStrideDest, int iBytesPerSample );
+  DecLib m_cDecLib;
+  bool m_bCreateNewPicBuf = false;
 
-public:
+  std::list<Frame> m_rcFrameList;
+  std::list<Frame>::iterator m_pcFrameNext = m_rcFrameList.begin();
 
-   bool                                    m_bInitialized = false;
+  std::list<Picture*> m_pcLibPictureList;  // internal picture list
 
-   DecLib                                  m_cDecLib;
-   bool                                    m_bCreateNewPicBuf    = false;
+  std::string m_sDecoderInfo;
+  std::string m_sDecoderCapabilities;
 
-   std::list<Frame>                        m_rcFrameList;
-   std::list<Frame>::iterator              m_pcFrameNext = m_rcFrameList.begin();
+  std::string m_cErrorString;
+  std::string m_cAdditionalErrorString;
 
-   std::list<Picture*>                     m_pcLibPictureList; // internal picture list
+  uint64_t m_uiSeqNumber = 0;
+  uint64_t m_uiSeqNumOutput = 0;
+  uint64_t m_uiPicCount = 0;
 
-   std::string                             m_sDecoderInfo;
-   std::string                             m_sDecoderCapabilities;
+  static std::string m_cTmpErrorString;
+  static std::string m_cNalType;
 
-   std::string                             m_cErrorString;
-   std::string                             m_cAdditionalErrorString;
-
-   uint64_t                                m_uiSeqNumber       = 0;
-   uint64_t                                m_uiSeqNumOutput    = 0;
-   uint64_t                                m_uiPicCount        = 0;
-
-  static std::string                       m_cTmpErrorString;
-  static std::string                       m_cNalType;
-
-  std::chrono::steady_clock::time_point    m_cTPStart;
-  std::chrono::steady_clock::time_point    m_cTPEnd;
+  std::chrono::steady_clock::time_point m_cTPStart;
+  std::chrono::steady_clock::time_point m_cTPEnd;
 };
 
-
-} // namespace
-
+}  // namespace vvdec

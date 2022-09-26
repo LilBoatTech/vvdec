@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -52,8 +52,8 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #define __DECCU__
 
 #if _MSC_VER > 1000
-#pragma once
-#endif // _MSC_VER > 1000
+#  pragma once
+#endif  // _MSC_VER > 1000
 
 #include "CABACReader.h"
 
@@ -72,45 +72,43 @@ THE POSSIBILITY OF SUCH DAMAGE.
 // ====================================================================================================================
 
 /// CU decoder class
-class DecCu
-{
+class DecCu {
   // Task definition
-public:
-  void TaskDeriveCtuMotionInfo ( CodingStructure& cs, const UnitArea& ctuArea,  MotionHist& hist );
-  void TaskInterCtu            ( CodingStructure& cs, const UnitArea& ctuArea );
-  void TaskTrafoCtu            ( CodingStructure& cs, const UnitArea& ctuArea );
-  void TaskCriticalIntraKernel ( CodingStructure& cs, const UnitArea& ctuArea );
-  void TaskDeriveDMVRMotionInfo( CodingStructure& cs, const UnitArea& ctuArea );
+ public:
+  void TaskDeriveCtuMotionInfo(CodingStructure& cs, const UnitArea& ctuArea, MotionHist& hist);
+  void TaskInterCtu(CodingStructure& cs, const UnitArea& ctuArea);
+  void TaskTrafoCtu(CodingStructure& cs, const UnitArea& ctuArea);
+  void TaskCriticalIntraKernel(CodingStructure& cs, const UnitArea& ctuArea);
+  void TaskDeriveDMVRMotionInfo(CodingStructure& cs, const UnitArea& ctuArea);
 
-public:
+ public:
   DecCu();
   virtual ~DecCu();
 
   /// initialize access channels
-  void  init              ( IntraPrediction* pcIntra, InterPrediction* pcInter, Reshape* pcReshape, TrQuant* pcTrQuant );
+  void init(IntraPrediction* pcIntra, InterPrediction* pcInter, Reshape* pcReshape, TrQuant* pcTrQuant);
 
-  void  create();
-  void  destroy();
+  void create();
+  void destroy();
 
-protected:
+ protected:
   /// reconstruct Ctu information
-  void predAndReco        ( CodingUnit&      cu, bool doCiipIntra = false );
-  void finishLMCSAndReco  ( CodingUnit&      cu );
-  void reconstructResi    ( CodingUnit&      cu );
+  void predAndReco(CodingUnit& cu, bool doCiipIntra = false);
+  void finishLMCSAndReco(CodingUnit& cu);
+  void reconstructResi(CodingUnit& cu);
 
-  void xIntraRecACT       ( CodingUnit&      cu );
-  void xDeriveCUMV        ( CodingUnit&      cu, MotionHist& hist );
+  void xIntraRecACT(CodingUnit& cu);
+  void xDeriveCUMV(CodingUnit& cu, MotionHist& hist);
 
-private:
-  Reshape*          m_pcReshape;
-  IntraPrediction*  m_pcIntraPred;
-  InterPrediction*  m_pcInterPred;
-  TrQuant*          m_pcTrQuant;
+ private:
+  Reshape* m_pcReshape;
+  IntraPrediction* m_pcIntraPred;
+  InterPrediction* m_pcInterPred;
+  TrQuant* m_pcTrQuant;
 
-  MergeCtx          m_geoMrgCtx;
+  MergeCtx m_geoMrgCtx;
 };
 
 //! \}
 
 #endif
-

@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -58,74 +58,80 @@ THE POSSIBILITY OF SUCH DAMAGE.
 //! \ingroup CommonLib
 //! \{
 
-#define DEBLOCK_SMALLEST_BLOCK  8
+#define DEBLOCK_SMALLEST_BLOCK 8
 
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
 
 /// deblocking filter class
-class LoopFilter
-{
-private:
+class LoopFilter {
+ private:
   /// CU-level deblocking function
-  template<DeblockEdgeDir edgeDir>
-  void xDeblockCtuArea            ( CodingStructure& cs, const UnitArea& area, const ChannelType chType ) const;
+  template <DeblockEdgeDir edgeDir>
+  void xDeblockCtuArea(CodingStructure& cs, const UnitArea& area, const ChannelType chType) const;
 
   // set / get functions
-  LFCUParam xGetLoopfilterParam   ( const CodingUnit& cu ) const;
+  LFCUParam xGetLoopfilterParam(const CodingUnit& cu) const;
 
   // filtering functions
-  template<DeblockEdgeDir edgeDir>
-  void xGetBoundaryStrengthSingle ( LoopFilterParam& lfp, const CodingUnit& cu, const Position &localPos, const CodingUnit &cuP, CtuData& ctuData, bool pqSameCtu ) const;
-  template<DeblockEdgeDir edgeDir>
-  void xSetEdgeFilterInsidePu     ( const CodingUnit &cu, const Area &area, const bool bValue, CtuData& ctuData );
+  template <DeblockEdgeDir edgeDir>
+  void xGetBoundaryStrengthSingle(LoopFilterParam& lfp, const CodingUnit& cu, const Position& localPos,
+                                  const CodingUnit& cuP, CtuData& ctuData, bool pqSameCtu) const;
+  template <DeblockEdgeDir edgeDir>
+  void xSetEdgeFilterInsidePu(const CodingUnit& cu, const Area& area, const bool bValue, CtuData& ctuData);
 
-  template<DeblockEdgeDir edgeDir>
-  void xSetMaxFilterLengthPQFromTransformSizes( const CodingUnit& cu, const TransformUnit& currTU, const bool bValue, bool deriveBdStrngt, CtuData& ctuData, bool pqSameCtu );
-  template<DeblockEdgeDir edgeDir>
-  void xSetMaxFilterLengthPQForCodingSubBlocks( const CodingUnit& cu, CtuData& ctuData );
+  template <DeblockEdgeDir edgeDir>
+  void xSetMaxFilterLengthPQFromTransformSizes(const CodingUnit& cu, const TransformUnit& currTU, const bool bValue,
+                                               bool deriveBdStrngt, CtuData& ctuData, bool pqSameCtu);
+  template <DeblockEdgeDir edgeDir>
+  void xSetMaxFilterLengthPQForCodingSubBlocks(const CodingUnit& cu, CtuData& ctuData);
 
-  template<DeblockEdgeDir edgeDir>
-  void xEdgeFilterLuma            ( CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp ) const;
-  template<DeblockEdgeDir edgeDir>
-  void xEdgeFilterChroma          ( CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp ) const;
+  template <DeblockEdgeDir edgeDir>
+  void xEdgeFilterLuma(CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp) const;
+  template <DeblockEdgeDir edgeDir>
+  void xEdgeFilterChroma(CodingStructure& cs, const Position& pos, const LoopFilterParam& lfp) const;
 
 #if LUMA_ADAPTIVE_DEBLOCKING_FILTER_QP_OFFSET
-  void deriveLADFShift            ( const Pel* src, const ptrdiff_t stride, int& shift, const DeblockEdgeDir edgeDir, const SPS sps ) const;
+  void deriveLADFShift(const Pel* src, const ptrdiff_t stride, int& shift, const DeblockEdgeDir edgeDir,
+                       const SPS sps) const;
 
 #endif
-  static const uint16_t sm_tcTable  [MAX_QP + 3];
-  static const uint8_t  sm_betaTable[MAX_QP + 1];
+  static const uint16_t sm_tcTable[MAX_QP + 3];
+  static const uint8_t sm_betaTable[MAX_QP + 1];
 
-  void( *xPelFilterLuma  )( Pel* piSrc, const ptrdiff_t step, const ptrdiff_t offset, const int tc, const bool sw, const int iThrCut, const bool bFilterSecondP, const bool bFilterSecondQ, const ClpRng& clpRng );
-  void( *xFilteringPandQ )( Pel* src, ptrdiff_t step, const ptrdiff_t offset, int numberPSide, int numberQSide, int tc );
+  void (*xPelFilterLuma)(Pel* piSrc, const ptrdiff_t step, const ptrdiff_t offset, const int tc, const bool sw,
+                         const int iThrCut, const bool bFilterSecondP, const bool bFilterSecondQ, const ClpRng& clpRng);
+  void (*xFilteringPandQ)(Pel* src, ptrdiff_t step, const ptrdiff_t offset, int numberPSide, int numberQSide, int tc);
 
 #ifdef TARGET_SIMD_X86
   void initLoopFilterX86();
   template <X86_VEXT vext>
   void _initLoopFilterX86();
 #endif
-  inline bool isCrossedByVirtualBoundaries( const PicHeader* picHeader, const Area& area, int& numHorVirBndry, int& numVerVirBndry, int horVirBndryPos[], int verVirBndryPos[] ) const;
-  inline void xDeriveEdgefilterParam( const Position pos, const int numVerVirBndry, const int numHorVirBndry, const int verVirBndryPos[], const int horVirBndryPos[], bool& verEdgeFilter, bool& horEdgeFilter ) const;
+  inline bool isCrossedByVirtualBoundaries(const PicHeader* picHeader, const Area& area, int& numHorVirBndry,
+                                           int& numVerVirBndry, int horVirBndryPos[], int verVirBndryPos[]) const;
+  inline void xDeriveEdgefilterParam(const Position pos, const int numVerVirBndry, const int numHorVirBndry,
+                                     const int verVirBndryPos[], const int horVirBndryPos[], bool& verEdgeFilter,
+                                     bool& horEdgeFilter) const;
 
-public:
-
+ public:
   LoopFilter();
   ~LoopFilter();
 
   /// picture-level deblocking filter
-  void loopFilterPic              ( CodingStructure& cs ) const;
-  void loopFilterPicLine          ( CodingStructure& cs, const ChannelType chType,                   const int ctuLine, const int offset = 0, DeblockEdgeDir edgeDir = NUM_EDGE_DIR ) const;
-  void loopFilterCTU              ( CodingStructure & cs, const ChannelType chType, const int ctuCol, const int ctuLine, const int offset = 0, DeblockEdgeDir edgeDir = NUM_EDGE_DIR ) const;
-  void calcFilterStrengthsCTU     ( CodingStructure & cs, const UnitArea& ctuArea );
+  void loopFilterPic(CodingStructure& cs) const;
+  void loopFilterPicLine(CodingStructure& cs, const ChannelType chType, const int ctuLine, const int offset = 0,
+                         DeblockEdgeDir edgeDir = NUM_EDGE_DIR) const;
+  void loopFilterCTU(CodingStructure& cs, const ChannelType chType, const int ctuCol, const int ctuLine,
+                     const int offset = 0, DeblockEdgeDir edgeDir = NUM_EDGE_DIR) const;
+  void calcFilterStrengthsCTU(CodingStructure& cs, const UnitArea& ctuArea);
 
-  void calcFilterStrengths        ( const CodingUnit& cu );
+  void calcFilterStrengths(const CodingUnit& cu);
 
-  static int getBeta              ( const int qp )
-  {
-    const int indexB = Clip3( 0, MAX_QP, qp );
-    return sm_betaTable[ indexB ];
+  static int getBeta(const int qp) {
+    const int indexB = Clip3(0, MAX_QP, qp);
+    return sm_betaTable[indexB];
   }
 };
 

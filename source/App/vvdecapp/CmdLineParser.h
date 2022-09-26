@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -55,174 +55,155 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace vvdecoderapp {
 
-class CmdLineParser
-{
-public:
+class CmdLineParser {
+ public:
   /// Constructor
-  CmdLineParser(){}
+  CmdLineParser() {}
 
   /// Destructor
   virtual ~CmdLineParser() {}
 
-  static void print_usage( std::string cApp, vvdec::VVDecParameter& rcParams )
-  {
-      printf( "\n Usage:  %s  [param1] [pararm2] [...] \n", cApp.c_str() );
-      std::cout << "\n"
-          "\t File input Options\n"
-          "\t\t [--bitstream,-b <str>      ] : bitstream input file\n"
-          "\t\t [--frames,-f  <int>        ] : max. frames to decode (default: -1 all frames) \n"
-          "\n"
-          "\t YUV output options\n"
-          "\n"
-          "\t\t [--output,-o  <str>        ] : yuv output file (default: not set)\n"
-          "\n"
-          "\t Decoder Options\n"
-          "\n"
-          "\t\t [--threads,-t  <int>       ] : number of threads (default: <= 0 auto detection )\n"
-          "\t\t [--parsedelay,-p  <int>    ] : maximal number of frames to read before decoding (default: <= 0 auto detection )\n"
-          "\n"
-          "\t\t [--SEIDecodedPictureHash,-dph ] : enable handling of decoded picture hash SEI messages"
-          "\n"
-          "\t General Options\n"
-          "\n"
-          "\t\t [--loops,-L  <int>         ] : number of decoder loops (default: 0, -1 endless)\n"
-          "\t\t [--verbosity,-v  <int>     ] : verbosity level (0: silent, 1: error, 2: warning, 3: info, 4: notice: 5, verbose, 6: debug) (default: " << (int)rcParams.m_eLogLevel << ")\n"
-          "\t\t [--help,-h                 ] : show help\n"
-          "\n" ;
-      std::cout << std::endl;
+  static void print_usage(std::string cApp, vvdec::VVDecParameter& rcParams) {
+    printf("\n Usage:  %s  [param1] [pararm2] [...] \n", cApp.c_str());
+    std::cout << "\n"
+                 "\t File input Options\n"
+                 "\t\t [--bitstream,-b <str>      ] : bitstream input file\n"
+                 "\t\t [--frames,-f  <int>        ] : max. frames to decode (default: -1 all frames) \n"
+                 "\n"
+                 "\t YUV output options\n"
+                 "\n"
+                 "\t\t [--output,-o  <str>        ] : yuv output file (default: not set)\n"
+                 "\n"
+                 "\t Decoder Options\n"
+                 "\n"
+                 "\t\t [--threads,-t  <int>       ] : number of threads (default: <= 0 auto detection )\n"
+                 "\t\t [--parsedelay,-p  <int>    ] : maximal number of frames to read before decoding (default: <= 0 "
+                 "auto detection )\n"
+                 "\n"
+                 "\t\t [--SEIDecodedPictureHash,-dph ] : enable handling of decoded picture hash SEI messages"
+                 "\n"
+                 "\t General Options\n"
+                 "\n"
+                 "\t\t [--loops,-L  <int>         ] : number of decoder loops (default: 0, -1 endless)\n"
+                 "\t\t [--verbosity,-v  <int>     ] : verbosity level (0: silent, 1: error, 2: warning, 3: info, 4: "
+                 "notice: 5, verbose, 6: debug) (default: "
+              << (int)rcParams.m_eLogLevel
+              << ")\n"
+                 "\t\t [--help,-h                 ] : show help\n"
+                 "\n";
+    std::cout << std::endl;
   }
 
-
-  static int parse_command_line( int argc, char* argv[] , vvdec::VVDecParameter& rcParams, std::string& rcBitstreamFile, std::string& rcOutputFile,
-                                 int& riFrames, int& riLoops )
-  {
+  static int parse_command_line(int argc, char* argv[], vvdec::VVDecParameter& rcParams, std::string& rcBitstreamFile,
+                                std::string& rcOutputFile, int& riFrames, int& riLoops) {
     int iRet = 0;
     /* Check command line parameters */
-    int32_t  i_arg = 1;
+    int32_t i_arg = 1;
 
     /* Check general options firs*/
-    while( i_arg < argc )
-    {
-      if( (!strcmp( (const char*)argv[i_arg], "-v" )) || !strcmp( (const char*)argv[i_arg], "--verbosity" ) )
-      {
+    while (i_arg < argc) {
+      if ((!strcmp((const char*)argv[i_arg], "-v")) || !strcmp((const char*)argv[i_arg], "--verbosity")) {
         i_arg++;
-        int iLogLevel = atoi( argv[i_arg++] );
-        if( iLogLevel < 0 ) iLogLevel = 0;
-        if( iLogLevel > (int)vvdec::LogLevel::LL_DETAILS ) iLogLevel = (int)vvdec::LogLevel::LL_DETAILS ;
+        int iLogLevel = atoi(argv[i_arg++]);
+        if (iLogLevel < 0) iLogLevel = 0;
+        if (iLogLevel > (int)vvdec::LogLevel::LL_DETAILS) iLogLevel = (int)vvdec::LogLevel::LL_DETAILS;
         rcParams.m_eLogLevel = (vvdec::LogLevel)iLogLevel;
 
-        if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-        {
+        if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) {
           std::string cll;
-          switch (rcParams.m_eLogLevel)
-          {
-            case vvdec::LL_SILENT : cll = "SILENT"; break;
-            case vvdec::LL_ERROR  : cll = "ERROR"; break;
-            case vvdec::LL_WARNING: cll = "WARNING"; break;
-            case vvdec::LL_INFO   : cll = "INFO"; break;
-            case vvdec::LL_NOTICE : cll = "NOTICE"; break;
-            case vvdec::LL_VERBOSE: cll = "VERBOSE"; break;
-            case vvdec::LL_DETAILS: cll = "DETAILS"; break;
-            default: cll = "UNKNOWN"; break;
+          switch (rcParams.m_eLogLevel) {
+            case vvdec::LL_SILENT:
+              cll = "SILENT";
+              break;
+            case vvdec::LL_ERROR:
+              cll = "ERROR";
+              break;
+            case vvdec::LL_WARNING:
+              cll = "WARNING";
+              break;
+            case vvdec::LL_INFO:
+              cll = "INFO";
+              break;
+            case vvdec::LL_NOTICE:
+              cll = "NOTICE";
+              break;
+            case vvdec::LL_VERBOSE:
+              cll = "VERBOSE";
+              break;
+            case vvdec::LL_DETAILS:
+              cll = "DETAILS";
+              break;
+            default:
+              cll = "UNKNOWN";
+              break;
           };
-          fprintf( stdout, "[verbosity] : %d - %s\n", (int)rcParams.m_eLogLevel, cll.c_str() );
+          fprintf(stdout, "[verbosity] : %d - %s\n", (int)rcParams.m_eLogLevel, cll.c_str());
         }
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-h" )) || !strcmp( (const char*)argv[i_arg], "--help" ) )
-      {
+      } else if ((!strcmp((const char*)argv[i_arg], "-h")) || !strcmp((const char*)argv[i_arg], "--help")) {
         i_arg++;
         iRet = 2;
         return iRet;
-      }
-      else
-      {
+      } else {
         i_arg++;
       }
     }
 
-
     i_arg = 1;
-    while( i_arg < argc )
-    {
-      if( (!strcmp( (const char*)argv[i_arg], "-b" )) || !strcmp( (const char*)argv[i_arg], "--bitstream" ) ) /* In: input-file */
+    while (i_arg < argc) {
+      if ((!strcmp((const char*)argv[i_arg], "-b")) ||
+          !strcmp((const char*)argv[i_arg], "--bitstream")) /* In: input-file */
       {
         i_arg++;
-        if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-          fprintf( stdout, "[bitstream] input-file:    %s\n", argv[i_arg] );
+        if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[bitstream] input-file:    %s\n", argv[i_arg]);
         rcBitstreamFile = argv[i_arg++];
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-o" )) || !strcmp( (const char*)argv[i_arg], "--output" ) ) /* Out: bitstream-file */
+      } else if ((!strcmp((const char*)argv[i_arg], "-o")) ||
+                 !strcmp((const char*)argv[i_arg], "--output")) /* Out: bitstream-file */
       {
         i_arg++;
-        if( i_arg < argc && strlen( argv[i_arg] ) > 0 )
-        {
-          if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-            fprintf( stdout, "[output] yuv-file:    %s\n", argv[i_arg] );
+        if (i_arg < argc && strlen(argv[i_arg]) > 0) {
+          if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[output] yuv-file:    %s\n", argv[i_arg]);
           rcOutputFile = argv[i_arg++];
         }
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-f" )) || !strcmp( (const char*)argv[i_arg], "--frames" ) )
-      {
+      } else if ((!strcmp((const char*)argv[i_arg], "-f")) || !strcmp((const char*)argv[i_arg], "--frames")) {
         i_arg++;
-        riFrames = atoi( argv[i_arg++] );
-        if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-          fprintf( stdout, "[frames] : %d\n", riFrames );
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-t" )) || !strcmp( (const char*)argv[i_arg], "--threads" ) )
-      {
+        riFrames = atoi(argv[i_arg++]);
+        if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[frames] : %d\n", riFrames);
+      } else if ((!strcmp((const char*)argv[i_arg], "-t")) || !strcmp((const char*)argv[i_arg], "--threads")) {
         i_arg++;
-        int iThreads = atoi( argv[i_arg++] );
-        if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-          fprintf( stdout, "[threads] : %d\n", iThreads );
+        int iThreads = atoi(argv[i_arg++]);
+        if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[threads] : %d\n", iThreads);
         rcParams.m_iThreads = iThreads;
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-p" )) || !strcmp( (const char*)argv[i_arg], "--parsedelay" ) )
-      {
+      } else if ((!strcmp((const char*)argv[i_arg], "-p")) || !strcmp((const char*)argv[i_arg], "--parsedelay")) {
         i_arg++;
-        int iThreads = atoi( argv[i_arg++] );
-        if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-          fprintf( stdout, "[parsedelay] : %d\n", iThreads );
+        int iThreads = atoi(argv[i_arg++]);
+        if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[parsedelay] : %d\n", iThreads);
         rcParams.m_iParseThreads = iThreads;
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-dph" )) || !strcmp( (const char*)argv[i_arg], "--SEIDecodedPictureHash" ) )
-      {
+      } else if ((!strcmp((const char*)argv[i_arg], "-dph")) ||
+                 !strcmp((const char*)argv[i_arg], "--SEIDecodedPictureHash")) {
         i_arg++;
-        if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-          fprintf( stdout, "[SEIDecodedPictureHash] : true\n" );
+        if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[SEIDecodedPictureHash] : true\n");
         rcParams.m_bDecodedPictureHashSEIEnabled = true;
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-L" )) || !strcmp( (const char*)argv[i_arg], "--loops" ) )
-      {
+      } else if ((!strcmp((const char*)argv[i_arg], "-L")) || !strcmp((const char*)argv[i_arg], "--loops")) {
         i_arg++;
-        riLoops = atoi( argv[i_arg++] );
-        if( rcParams.m_eLogLevel > vvdec::LL_VERBOSE )
-          fprintf( stdout, "[loops] : %d\n", riLoops );
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-v" )) || !strcmp( (const char*)argv[i_arg], "--verbosity" ) )
-      {
+        riLoops = atoi(argv[i_arg++]);
+        if (rcParams.m_eLogLevel > vvdec::LL_VERBOSE) fprintf(stdout, "[loops] : %d\n", riLoops);
+      } else if ((!strcmp((const char*)argv[i_arg], "-v")) || !strcmp((const char*)argv[i_arg], "--verbosity")) {
         // already processed
         i_arg++;
         i_arg++;
-      }
-      else if( (!strcmp( (const char*)argv[i_arg], "-h" )) || !strcmp( (const char*)argv[i_arg], "--help" ) )
-      {
+      } else if ((!strcmp((const char*)argv[i_arg], "-h")) || !strcmp((const char*)argv[i_arg], "--help")) {
         // already processed
         i_arg++;
-      }
-      else
-      {
-        fprintf( stderr, " - IGNORED: %s \n", argv[i_arg++] );
+      } else {
+        fprintf(stderr, " - IGNORED: %s \n", argv[i_arg++]);
       }
     }
 
     return iRet;
   }
 
-private:
+ private:
   std::ofstream m_cOS;
 };
 
-
-
-} // namespace
-
+}  // namespace vvdecoderapp

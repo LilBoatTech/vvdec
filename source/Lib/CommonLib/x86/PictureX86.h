@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -51,169 +51,148 @@ THE POSSIBILITY OF SUCH DAMAGE.
 //! \ingroup CommonLib
 //! \{
 
-
 #include "CommonLib/CommonDef.h"
 #include "CommonDefX86.h"
 #include "CommonLib/Picture.h"
 
 #if ENABLE_SIMD_OPT_PICTURE
-#ifdef TARGET_SIMD_X86
+#  ifdef TARGET_SIMD_X86
 
-
-template<X86_VEXT vext>
-void paddPicBorderLeftRightSIMD(Pel *pi, ptrdiff_t stride,int width,int xmargin,int height)
-{
+template <X86_VEXT vext>
+void paddPicBorderLeftRightSIMD(Pel* pi, ptrdiff_t stride, int width, int xmargin, int height) {
   __m128i xleft;
   __m128i xright;
 
-  for (int i=1;i<height-1;i++)
-  {
-    xleft  = _mm_set1_epi16( pi[0] );
-    xright = _mm_set1_epi16( pi[width - 1] );
+  for (int i = 1; i < height - 1; i++) {
+    xleft = _mm_set1_epi16(pi[0]);
+    xright = _mm_set1_epi16(pi[width - 1]);
 
-    int temp=xmargin;
-    int x=0;
-    while ((temp >> 3) > 0)
-    {
+    int temp = xmargin;
+    int x = 0;
+    while ((temp >> 3) > 0) {
       _mm_storeu_si128((__m128i*)&pi[-xmargin + x], xleft);
-      _mm_storeu_si128((__m128i*)&pi[width  + x], xright);
-      x+=8;
-      temp-=8;
+      _mm_storeu_si128((__m128i*)&pi[width + x], xright);
+      x += 8;
+      temp -= 8;
     }
-    while ((temp >> 2) > 0)
-    {
+    while ((temp >> 2) > 0) {
       _mm_storel_epi64((__m128i*)&pi[-xmargin + x], xleft);
-      _mm_storel_epi64((__m128i*)&pi[width  + x], xright);
-      x+=4;
-      temp-=4;
+      _mm_storel_epi64((__m128i*)&pi[width + x], xright);
+      x += 4;
+      temp -= 4;
     }
-    while ((temp >> 1) > 0)
-    {
-      _mm_storeu_si32(( __m128i * )&pi[-xmargin + x], xleft);
-      _mm_storeu_si32(( __m128i * )&pi[width  + x], xright);
-      x+=2;
-      temp-=2;
+    while ((temp >> 1) > 0) {
+      _mm_storeu_si32((__m128i*)&pi[-xmargin + x], xleft);
+      _mm_storeu_si32((__m128i*)&pi[width + x], xright);
+      x += 2;
+      temp -= 2;
     }
     pi += stride;
   }
 }
 
-template<X86_VEXT vext>
-void paddPicBorderBotSIMD( Pel *pi, ptrdiff_t stride, int width, int xmargin, int ymargin )
-{
-  paddPicBorderLeftRightSIMD<vext>( pi, stride, width, xmargin, 3 );
+template <X86_VEXT vext>
+void paddPicBorderBotSIMD(Pel* pi, ptrdiff_t stride, int width, int xmargin, int ymargin) {
+  paddPicBorderLeftRightSIMD<vext>(pi, stride, width, xmargin, 3);
 
   pi -= xmargin;
 
   __m128i x8;
-#ifdef USE_AVX2
+#    ifdef USE_AVX2
   __m256i v16;
-#endif
+#    endif
   int j, temp;
-  for( int i = 1; i <= ymargin; i++ )
-  {
+  for (int i = 1; i <= ymargin; i++) {
     j = 0;
-    temp = width + ( xmargin << 1 );
-#ifdef USE_AVX2
-    while( ( temp >> 4 ) > 0 )
-    {
-      v16 = _mm256_loadu_si256( ( __m256i* )( pi + j ) );
-      _mm256_storeu_si256( ( __m256i* )( pi + j + i * stride ), v16 );
+    temp = width + (xmargin << 1);
+#    ifdef USE_AVX2
+    while ((temp >> 4) > 0) {
+      v16 = _mm256_loadu_si256((__m256i*)(pi + j));
+      _mm256_storeu_si256((__m256i*)(pi + j + i * stride), v16);
       j = j + 16;
       temp = temp - 16;
     }
-#endif
-    while( ( temp >> 3 ) > 0 )
-    {
-      x8 = _mm_loadu_si128( ( __m128i* )( pi + j ) );
-      _mm_storeu_si128( ( __m128i* )( pi + j + i * stride ), x8 );
+#    endif
+    while ((temp >> 3) > 0) {
+      x8 = _mm_loadu_si128((__m128i*)(pi + j));
+      _mm_storeu_si128((__m128i*)(pi + j + i * stride), x8);
       j = j + 8;
       temp = temp - 8;
     }
-    while( ( temp >> 2 ) > 0 )
-    {
-      x8 = _mm_loadl_epi64( ( __m128i * )( pi + j ) );
-      _mm_storel_epi64( ( __m128i* )( pi + j + i * stride ), x8 );
+    while ((temp >> 2) > 0) {
+      x8 = _mm_loadl_epi64((__m128i*)(pi + j));
+      _mm_storel_epi64((__m128i*)(pi + j + i * stride), x8);
       j = j + 4;
       temp = temp - 4;
     }
-    while( ( temp >> 1 ) > 0 )
-    {
-      x8 = _mm_loadu_si32( ( __m128i * )( pi + j ) );
-      _mm_storeu_si32( ( __m128i * )( pi + j + i * stride ), x8 );
+    while ((temp >> 1) > 0) {
+      x8 = _mm_loadu_si32((__m128i*)(pi + j));
+      _mm_storeu_si32((__m128i*)(pi + j + i * stride), x8);
       j += 2;
       temp -= 2;
     }
   }
-#if USE_AVX2
+#    if USE_AVX2
 
   _mm256_zeroupper();
-#endif
+#    endif
 }
 
-template<X86_VEXT vext>
-void paddPicBorderTopSIMD( Pel *pi, ptrdiff_t stride, int width, int xmargin, int ymargin )
-{
-  paddPicBorderLeftRightSIMD<vext>( pi, stride, width, xmargin, 3 );
+template <X86_VEXT vext>
+void paddPicBorderTopSIMD(Pel* pi, ptrdiff_t stride, int width, int xmargin, int ymargin) {
+  paddPicBorderLeftRightSIMD<vext>(pi, stride, width, xmargin, 3);
 
   pi -= xmargin;
 
   __m128i x8;
-#ifdef USE_AVX2
+#    ifdef USE_AVX2
   __m256i v16;
-#endif
+#    endif
   int j, temp;
-  for( int i = 1; i <= ymargin; i++ )
-  {
+  for (int i = 1; i <= ymargin; i++) {
     j = 0;
-    temp = width + ( xmargin << 1 );
-#ifdef USE_AVX2
-    while( ( temp >> 4 ) > 0 )
-    {
-      v16 = _mm256_loadu_si256( ( __m256i* )( pi + j ) );
-      _mm256_storeu_si256( ( __m256i* )( pi + j - i * stride ), v16 );
+    temp = width + (xmargin << 1);
+#    ifdef USE_AVX2
+    while ((temp >> 4) > 0) {
+      v16 = _mm256_loadu_si256((__m256i*)(pi + j));
+      _mm256_storeu_si256((__m256i*)(pi + j - i * stride), v16);
       j = j + 16;
       temp = temp - 16;
     }
-#endif
-    while( ( temp >> 3 ) > 0 )
-    {
-      x8 = _mm_loadu_si128( ( __m128i* )( pi + j ) );
-      _mm_storeu_si128( ( __m128i* )( pi + j - i * stride ), x8 );
+#    endif
+    while ((temp >> 3) > 0) {
+      x8 = _mm_loadu_si128((__m128i*)(pi + j));
+      _mm_storeu_si128((__m128i*)(pi + j - i * stride), x8);
       j = j + 8;
       temp = temp - 8;
     }
-    while( ( temp >> 2 ) > 0 )
-    {
-      x8 = _mm_loadl_epi64( ( __m128i * )( pi + j ) );
-      _mm_storel_epi64( ( __m128i* )( pi + j - i * stride ), x8 );
+    while ((temp >> 2) > 0) {
+      x8 = _mm_loadl_epi64((__m128i*)(pi + j));
+      _mm_storel_epi64((__m128i*)(pi + j - i * stride), x8);
       j = j + 4;
       temp = temp - 4;
     }
-    while( ( temp >> 1 ) > 0 )
-    {
-      x8 = _mm_loadu_si32( ( __m128i * )( pi + j ) );
-      _mm_storeu_si32( ( __m128i * )( pi + j - i * stride ), x8 );
+    while ((temp >> 1) > 0) {
+      x8 = _mm_loadu_si32((__m128i*)(pi + j));
+      _mm_storeu_si32((__m128i*)(pi + j - i * stride), x8);
       j += 2;
       temp -= 2;
     }
   }
-#if USE_AVX2
+#    if USE_AVX2
 
   _mm256_zeroupper();
-#endif
+#    endif
 }
 
-
-template<X86_VEXT vext>
-void Picture::_initPictureX86()
-{
+template <X86_VEXT vext>
+void Picture::_initPictureX86() {
   paddPicBorderBot = paddPicBorderBotSIMD<vext>;
   paddPicBorderTop = paddPicBorderTopSIMD<vext>;
   paddPicBorderLeftRight = paddPicBorderLeftRightSIMD<vext>;
 }
 template void Picture::_initPictureX86<SIMDX86>();
 
-#endif // TARGET_SIMD_X86
+#  endif  // TARGET_SIMD_X86
 #endif
 //! \}

@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -48,16 +48,16 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 /// \endcond
 
-#if defined( _WIN32 )
-# if defined( VVDEC_DYN_LINK )
-#   if defined( VVDEC_SOURCE )
-#     define VVDEC_DECL __declspec(dllexport)
-#   else
-#     define VVDEC_DECL __declspec(dllimport)
-#   endif  // VVDEC_SOURCE
-# endif // VVDEC_DYN_LINK
-#endif // _WIN32
+#if defined(_WIN32)
+#  if defined(VVDEC_DYN_LINK)
+#    if defined(VVDEC_SOURCE)
+#      define VVDEC_DECL __declspec(dllexport)
+#    else
+#      define VVDEC_DECL __declspec(dllimport)
+#    endif  // VVDEC_SOURCE
+#  endif    // VVDEC_DYN_LINK
+#endif      // _WIN32
 
-#if !defined( VVDEC_DECL )
-# define VVDEC_DECL
+#if !defined(VVDEC_DECL)
+#  define VVDEC_DECL
 #endif

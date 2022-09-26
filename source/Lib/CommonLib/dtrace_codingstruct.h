@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -65,29 +65,31 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #if ENABLE_TRACING
 
-inline void dtracePicComp( DTRACE_CHANNEL channel, CodingStructure& cs, const CPelUnitBuf& pelUnitBuf, ComponentID compId )
-{
-  if( !g_trace_ctx ) return;
-  if( pelUnitBuf.chromaFormat == CHROMA_400 && compId != COMPONENT_Y )  return;
-  const Pel* piSrc    = pelUnitBuf.bufs[compId].buf;
-  ptrdiff_t      uiStride = pelUnitBuf.bufs[compId].stride;
-  uint32_t       uiWidth  = pelUnitBuf.bufs[compId].width;
-  uint32_t       uiHeight = pelUnitBuf.bufs[compId].height;
-  uint32_t       uiChromaScaleX = getComponentScaleX( compId, pelUnitBuf.chromaFormat );
-  uint32_t       uiChromaScaleY = getComponentScaleY( compId, pelUnitBuf.chromaFormat );
+inline void dtracePicComp(DTRACE_CHANNEL channel, CodingStructure& cs, const CPelUnitBuf& pelUnitBuf,
+                          ComponentID compId) {
+  if (!g_trace_ctx) return;
+  if (pelUnitBuf.chromaFormat == CHROMA_400 && compId != COMPONENT_Y) return;
+  const Pel* piSrc = pelUnitBuf.bufs[compId].buf;
+  ptrdiff_t uiStride = pelUnitBuf.bufs[compId].stride;
+  uint32_t uiWidth = pelUnitBuf.bufs[compId].width;
+  uint32_t uiHeight = pelUnitBuf.bufs[compId].height;
+  uint32_t uiChromaScaleX = getComponentScaleX(compId, pelUnitBuf.chromaFormat);
+  uint32_t uiChromaScaleY = getComponentScaleY(compId, pelUnitBuf.chromaFormat);
 
-  DTRACE                ( g_trace_ctx, channel, "\n%s: poc = %d, size=%dx%d\n\n", g_trace_ctx->getChannelName(channel), cs.picture->poc, uiWidth, uiHeight );
-  DTRACE_FRAME_BLOCKWISE( g_trace_ctx, channel, piSrc, uiStride, uiWidth, uiHeight, cs.sps->getMaxCUWidth() >> uiChromaScaleX, cs.sps->getMaxCUHeight() >> uiChromaScaleY);
+  DTRACE(g_trace_ctx, channel, "\n%s: poc = %d, size=%dx%d\n\n", g_trace_ctx->getChannelName(channel), cs.picture->poc,
+         uiWidth, uiHeight);
+  DTRACE_FRAME_BLOCKWISE(g_trace_ctx, channel, piSrc, uiStride, uiWidth, uiHeight,
+                         cs.sps->getMaxCUWidth() >> uiChromaScaleX, cs.sps->getMaxCUHeight() >> uiChromaScaleY);
 }
 
-#define DTRACE_PIC_COMP(...)             dtracePicComp( __VA_ARGS__ )
-#define DTRACE_STAT(...)                 dtraceComprPicStat(__VA_ARGS__)
+#  define DTRACE_PIC_COMP(...) dtracePicComp(__VA_ARGS__)
+#  define DTRACE_STAT(...) dtraceComprPicStat(__VA_ARGS__)
 
 #else
 
-#define DTRACE_STAT(...)
-#define DTRACE_PIC_COMP(...)
+#  define DTRACE_STAT(...)
+#  define DTRACE_PIC_COMP(...)
 
 #endif
 
-#endif // _DTRACE_HEVC_H_
+#endif  // _DTRACE_HEVC_H_

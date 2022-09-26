@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -50,53 +50,47 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-
 #include "CommonLib/Contexts.h"
 #include "CommonLib/BitStream.h"
 
+class BinDecoderBase : public Ctx {
+ protected:
+  BinDecoderBase();
 
-
-
-
-class BinDecoderBase : public Ctx
-{
-protected:
-  BinDecoderBase ();
-public:
+ public:
   ~BinDecoderBase() {}
-public:
-  void      init    ( InputBitstream* bitstream );
-  void      uninit  ();
-  void      start   ();
-  void      finish  ();
-  void      reset   ( int qp, int initId );
 
-public:
-  unsigned          decodeBinEP         ();
-  unsigned          decodeBinsEP        ( unsigned numBins  );
-  unsigned          decodeRemAbsEP      ( unsigned goRicePar, unsigned cutoff, int maxLog2TrDynamicRange );
-  unsigned          decodeBinTrm        ();
-  void              align               ();
-  unsigned          getNumBitsRead      () { return m_Bitstream->getNumBitsRead() + m_bitsNeeded; }
-private:
-  unsigned          decodeAlignedBinsEP ( unsigned numBins  );
-protected:
-  InputBitstream*   m_Bitstream;
-  uint32_t          m_Range;
-  uint32_t          m_Value;
-  int32_t           m_bitsNeeded;
+ public:
+  void init(InputBitstream* bitstream);
+  void uninit();
+  void start();
+  void finish();
+  void reset(int qp, int initId);
+
+ public:
+  unsigned decodeBinEP();
+  unsigned decodeBinsEP(unsigned numBins);
+  unsigned decodeRemAbsEP(unsigned goRicePar, unsigned cutoff, int maxLog2TrDynamicRange);
+  unsigned decodeBinTrm();
+  void align();
+  unsigned getNumBitsRead() { return m_Bitstream->getNumBitsRead() + m_bitsNeeded; }
+
+ private:
+  unsigned decodeAlignedBinsEP(unsigned numBins);
+
+ protected:
+  InputBitstream* m_Bitstream;
+  uint32_t m_Range;
+  uint32_t m_Value;
+  int32_t m_bitsNeeded;
 };
 
-
-
-class BinDecoder : public BinDecoderBase
-{
-public:
-  BinDecoder ();
+class BinDecoder : public BinDecoderBase {
+ public:
+  BinDecoder();
   ~BinDecoder() {}
-  unsigned decodeBin ( unsigned ctxId );
-private:
+  unsigned decodeBin(unsigned ctxId);
+
+ private:
   CtxStore& m_Ctx;
 };
-
-

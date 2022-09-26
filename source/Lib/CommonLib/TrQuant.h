@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -63,83 +63,70 @@ THE POSSIBILITY OF SUCH DAMAGE.
 //! \ingroup CommonLib
 //! \{
 
-typedef void InvTrans(const TCoeff*, TCoeff*, int, int, int, int, const TCoeff, const TCoeff);
+typedef void InvTrans(const TCoeff *, TCoeff *, int, int, int, int, const TCoeff, const TCoeff);
 
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
 
-
 /// transform and quantization class
-class TrQuant : Quant
-{
-public:
+class TrQuant : Quant {
+ public:
   TrQuant();
   ~TrQuant();
 
   // initialize class
-  void init      ( Slice *slice );
-  void getTrTypes( const TransformUnit &tu, const ComponentID compID, int &trTypeHor, int &trTypeVer );
+  void init(Slice *slice);
+  void getTrTypes(const TransformUnit &tu, const ComponentID compID, int &trTypeHor, int &trTypeVer);
 
-  void invLfnstNxN( int* src, int* dst, const uint32_t mode, const uint32_t index, const uint32_t size, int zeroOutSize );
+  void invLfnstNxN(int *src, int *dst, const uint32_t mode, const uint32_t index, const uint32_t size, int zeroOutSize);
 
-  uint32_t getLFNSTIntraMode( int wideAngPredMode );
-  bool     getTransposeFlag ( uint32_t intraMode  );
+  uint32_t getLFNSTIntraMode(int wideAngPredMode);
+  bool getTransposeFlag(uint32_t intraMode);
 
-protected:
+ protected:
+  void xInvLfnst(TransformUnit &tu, const ComponentID &compID);
 
-  void xInvLfnst      (       TransformUnit &tu, const ComponentID &compID );
+ public:
+  void invTransformNxN(TransformUnit &tu, const ComponentID &compID, PelBuf &pResi, const QpParam &cQPs);
+  void invTransformICT(const TransformUnit &tu, PelBuf &resCb, PelBuf &resCr);
 
-public:
+ protected:
+  bool m_bEnc;
+  bool m_useTransformSkipFast;
 
-  void invTransformNxN(       TransformUnit &tu, const ComponentID &compID, PelBuf &pResi, const QpParam &cQPs );
-  void invTransformICT( const TransformUnit &tu, PelBuf &resCb, PelBuf &resCr );
+  bool m_rectTUs;
 
+  bool m_scalingListEnabledFlag;
 
+  TCoeff *m_blk;
+  TCoeff *m_tmp;
+  TCoeff *m_dqnt;
 
-protected:
-  bool     m_bEnc;
-  bool     m_useTransformSkipFast;
-
-  bool     m_rectTUs;
-
-  bool     m_scalingListEnabledFlag;
-
-  TCoeff*  m_blk;
-  TCoeff*  m_tmp;
-  TCoeff*  m_dqnt;
-
-private:
-  TCoeff   m_tempInMatrix [ 48 ];
-  TCoeff   m_tempOutMatrix[ 48 ];
+ private:
+  TCoeff m_tempInMatrix[48];
+  TCoeff m_tempOutMatrix[48];
   static const int maxAbsIctMode = 3;
-  void   (*m_invICTMem[1+2*maxAbsIctMode])(PelBuf&,PelBuf&);
-  void  (**m_invICT)(PelBuf&,PelBuf&);
+  void (*m_invICTMem[1 + 2 * maxAbsIctMode])(PelBuf &, PelBuf &);
+  void (**m_invICT)(PelBuf &, PelBuf &);
 
   // dequantization
-  void xDeQuant( const TransformUnit &tu,
-                       CoeffBuf      &dstCoeff,
-                 const ComponentID   &compID,
-                 const QpParam       &cQP      );
+  void xDeQuant(const TransformUnit &tu, CoeffBuf &dstCoeff, const ComponentID &compID, const QpParam &cQP);
 
   // inverse transform
-  void xIT     ( const TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pCoeff, PelBuf &pResidual );
+  void xIT(const TransformUnit &tu, const ComponentID &compID, const CCoeffBuf &pCoeff, PelBuf &pResidual);
 
   // inverse skipping transform
-  void xITransformSkip(
-                 const CCoeffBuf     &plCoef,
-                       PelBuf        &pResidual,
-                 const TransformUnit &tu,
-                 const ComponentID   &component);
-
+  void xITransformSkip(const CCoeffBuf &plCoef, PelBuf &pResidual, const TransformUnit &tu,
+                       const ComponentID &component);
 
 #ifdef TARGET_SIMD_X86
-  template<X86_VEXT vext>
+  template <X86_VEXT vext>
   void _initTrQuantX86();
   void initTrQuantX86();
 #endif
-};// END CLASS DEFINITION TrQuant
+};  // END CLASS DEFINITION TrQuant
 
 //! \}
 
-#endif // __TRQUANT__
+#endif  // __TRQUANT__

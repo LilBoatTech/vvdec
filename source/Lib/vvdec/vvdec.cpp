@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -47,27 +47,26 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "vvdecimpl.h"
 
-#define THROW_EXC(x)            throw( Exception( "\nERROR: In function \"" ) << __FUNCTION__ << "\" in " << __FILE__ << ":" << __LINE__ << ": " << x )
+#define THROW_EXC(x) \
+  throw(Exception("\nERROR: In function \"") << __FUNCTION__ << "\" in " << __FILE__ << ":" << __LINE__ << ": " << x)
 
 namespace vvdec {
 
+const char* sMsg = "Not initialized";
 
-const char *sMsg = "Not initialized";
-
-VVDec::VVDec()
-{
+VVDec::VVDec() {
   m_pcVVDecImpl = new VVDecImpl;
 
-  if( NULL == m_pcVVDecImpl ) {  throw( Exception( "\nERROR: In function \"" ) << __FUNCTION__ << "\" in " << __FILE__ << ":" << __LINE__ << ": cannot init VVDecimpl" ); }
+  if (NULL == m_pcVVDecImpl) {
+    throw(Exception("\nERROR: In function \"")
+          << __FUNCTION__ << "\" in " << __FILE__ << ":" << __LINE__ << ": cannot init VVDecimpl");
+  }
 }
 
 /// Destructor
-VVDec::~VVDec()
-{
-  if( NULL != m_pcVVDecImpl )
-  {
-    if( m_pcVVDecImpl->m_bInitialized )
-    {
+VVDec::~VVDec() {
+  if (NULL != m_pcVVDecImpl) {
+    if (m_pcVVDecImpl->m_bInitialized) {
       uninit();
     }
     delete m_pcVVDecImpl;
@@ -75,48 +74,39 @@ VVDec::~VVDec()
   }
 }
 
-int VVDec::init( const VVDecParameter& rcVVDecParameter )
-{
+int VVDec::init(const VVDecParameter& rcVVDecParameter) {
 #if ENABLE_TRACING
-  if( !g_trace_ctx )
-  {
-    g_trace_ctx = tracing_init( sTracingFile, sTracingRule );
+  if (!g_trace_ctx) {
+    g_trace_ctx = tracing_init(sTracingFile, sTracingRule);
   }
-  if( bTracingChannelsList && g_trace_ctx )
-  {
+  if (bTracingChannelsList && g_trace_ctx) {
     std::string sChannelsList;
-    g_trace_ctx->getChannelsList( sChannelsList );
-    msg( INFO, "\nAvailable tracing channels:\n\n%s\n", sChannelsList.c_str() );
+    g_trace_ctx->getChannelsList(sChannelsList);
+    msg(INFO, "\nAvailable tracing channels:\n\n%s\n", sChannelsList.c_str());
   }
 #endif
-  
-  if( m_pcVVDecImpl->m_bInitialized )
-  {
-    return m_pcVVDecImpl->setAndRetErrorMsg( VVDEC_ERR_INITIALIZE );
+
+  if (m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
   }
 
-  if( rcVVDecParameter.m_iThreads > 64 )
-  {
-    return m_pcVVDecImpl->setAndRetErrorMsg( VVDEC_ERR_NOT_SUPPORTED );
+  if (rcVVDecParameter.m_iThreads > 64) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_NOT_SUPPORTED);
   }
 
-  if ( 0 != m_pcVVDecImpl->init( rcVVDecParameter ) )
-  {
+  if (0 != m_pcVVDecImpl->init(rcVVDecParameter)) {
     return VVDEC_ERR_INITIALIZE;
   }
 
   return VVDEC_OK;
 }
 
-int VVDec::uninit()
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  {
-    return m_pcVVDecImpl->setAndRetErrorMsg( VVDEC_ERR_INITIALIZE );
+int VVDec::uninit() {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
   }
 
-  if ( 0 != m_pcVVDecImpl->uninit( ) )
-  {
+  if (0 != m_pcVVDecImpl->uninit()) {
     return VVDEC_ERR_INITIALIZE;
   }
 
@@ -125,116 +115,82 @@ int VVDec::uninit()
   return VVDEC_OK;
 }
 
-bool VVDec::isInitialized()
-{
-  return m_pcVVDecImpl->m_bInitialized;
+bool VVDec::isInitialized() { return m_pcVVDecImpl->m_bInitialized; }
+
+int VVDec::decode(AccessUnit& rcAccessUnit, Frame** ppcFrame) {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
+  }
+
+  return m_pcVVDecImpl->setAndRetErrorMsg(m_pcVVDecImpl->decode(rcAccessUnit, ppcFrame));
 }
 
-int VVDec::decode( AccessUnit& rcAccessUnit, Frame** ppcFrame )
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  { return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE); }
+int VVDec::flush(Frame** ppcFrame) {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
+  }
 
-  return m_pcVVDecImpl->setAndRetErrorMsg( m_pcVVDecImpl->decode( rcAccessUnit, ppcFrame ) );
+  return m_pcVVDecImpl->setAndRetErrorMsg(m_pcVVDecImpl->flush(ppcFrame));
 }
 
-int VVDec::flush(  Frame** ppcFrame )
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  {  return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE); }
+int VVDec::objectUnref(Frame* pcFrame) {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
+  }
 
-  return m_pcVVDecImpl->setAndRetErrorMsg( m_pcVVDecImpl->flush( ppcFrame ) );
+  return m_pcVVDecImpl->setAndRetErrorMsg(m_pcVVDecImpl->objectUnref(pcFrame));
 }
 
-int VVDec::objectUnref( Frame* pcFrame )
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  {  return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE); }
+int VVDec::getNumberOfErrorsPictureHashSEI() {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
+  }
 
-  return m_pcVVDecImpl->setAndRetErrorMsg( m_pcVVDecImpl->objectUnref( pcFrame ) );
+  return m_pcVVDecImpl->setAndRetErrorMsg(m_pcVVDecImpl->getNumberOfErrorsPictureHashSEI());
 }
 
-
-int VVDec::getNumberOfErrorsPictureHashSEI( )
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  {  return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE); }
-
-  return m_pcVVDecImpl->setAndRetErrorMsg( m_pcVVDecImpl->getNumberOfErrorsPictureHashSEI( ) );
-}
-
-int VVDec::clockStartTime()
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  {  return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE); }
+int VVDec::clockStartTime() {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
+  }
 
   m_pcVVDecImpl->clockStartTime();
   return 0;
 }
 
-int VVDec::clockEndTime()
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  {  return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE); }
+int VVDec::clockEndTime() {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
+  }
 
   m_pcVVDecImpl->clockEndTime();
   return 0;
 }
 
-double VVDec::clockGetTimeDiffMs( )
-{
-  if( !m_pcVVDecImpl->m_bInitialized )
-  {  return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE); }
+double VVDec::clockGetTimeDiffMs() {
+  if (!m_pcVVDecImpl->m_bInitialized) {
+    return m_pcVVDecImpl->setAndRetErrorMsg(VVDEC_ERR_INITIALIZE);
+  }
 
   return m_pcVVDecImpl->clockGetTimeDiffMs();
 }
 
-const char* VVDec::getDecoderInfo()
-{
-  return m_pcVVDecImpl->getDecoderInfo();
-}
+const char* VVDec::getDecoderInfo() { return m_pcVVDecImpl->getDecoderInfo(); }
 
-const char* VVDec::getLastError() const
-{
-  return m_pcVVDecImpl->m_cErrorString.c_str();
-}
+const char* VVDec::getLastError() const { return m_pcVVDecImpl->m_cErrorString.c_str(); }
 
-const char* VVDec::getLastAdditionalError() const
-{
-  return m_pcVVDecImpl->m_cAdditionalErrorString.c_str();
-}
+const char* VVDec::getLastAdditionalError() const { return m_pcVVDecImpl->m_cAdditionalErrorString.c_str(); }
 
-const char* VVDec::getVersionNumber()
-{
-  return VVDecImpl::getVersionNumber();
-}
+const char* VVDec::getVersionNumber() { return VVDecImpl::getVersionNumber(); }
 
-const char* VVDec::getErrorMsg( int nRet )
-{
-  return VVDecImpl::getErrorMsg(nRet);
-}
+const char* VVDec::getErrorMsg(int nRet) { return VVDecImpl::getErrorMsg(nRet); }
 
+NalType VVDec::getNalUnitType(AccessUnit& rcAccessUnit) { return VVDecImpl::getNalUnitType(rcAccessUnit); }
 
-NalType VVDec::getNalUnitType ( AccessUnit& rcAccessUnit )
-{
-  return VVDecImpl::getNalUnitType(rcAccessUnit);
-}
+const char* VVDec::getNalUnitTypeAsString(NalType t) { return VVDecImpl::getNalUnitTypeAsString(t); }
 
-const char* VVDec::getNalUnitTypeAsString( NalType t )
-{
-  return VVDecImpl::getNalUnitTypeAsString(t);
-}
+bool VVDec::isNalUnitSlice(NalType t) { return VVDecImpl::isNalUnitSlice(t); }
 
-bool VVDec::isNalUnitSlice( NalType t )
-{
-  return VVDecImpl::isNalUnitSlice(t);
-}
+bool VVDec::isNalUnitSideData(NalType t) { return VVDecImpl::isNalUnitSideData(t); }
 
-bool VVDec::isNalUnitSideData( NalType t )
-{
-  return VVDecImpl::isNalUnitSideData(t);
-}
-
-
-} // namespace
-
+}  // namespace vvdec

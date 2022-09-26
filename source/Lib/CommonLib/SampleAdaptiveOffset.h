@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -60,113 +60,73 @@ THE POSSIBILITY OF SUCH DAMAGE.
 //! \ingroup CommonLib
 //! \{
 
-template<typename T> static inline int sgn( T val )
-{
-  return ( T( 0 ) < val ) - ( val < T( 0 ) );
+template <typename T>
+static inline int sgn(T val) {
+  return (T(0) < val) - (val < T(0));
 }
 
 // ====================================================================================================================
 // Constants
 // ====================================================================================================================
 
-#define MAX_SAO_TRUNCATED_BITDEPTH     10
+#define MAX_SAO_TRUNCATED_BITDEPTH 10
 
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
 
-class SampleAdaptiveOffset
-{
-public:
+class SampleAdaptiveOffset {
+ public:
   SampleAdaptiveOffset() {}
   ~SampleAdaptiveOffset();
 
-  void create( int picWidth, int picHeight, ChromaFormat format, uint32_t maxCUWidth, uint32_t maxCUHeight, uint32_t maxCUDepth, uint32_t lumaBitShift, uint32_t chromaBitShift );
+  void create(int picWidth, int picHeight, ChromaFormat format, uint32_t maxCUWidth, uint32_t maxCUHeight,
+              uint32_t maxCUDepth, uint32_t lumaBitShift, uint32_t chromaBitShift);
   void destroy();
 
-//  void SAOProcess( CodingStructure& cs );
-  void SAOProcessCTU    ( CodingStructure& cs, const UnitArea& ctuArea );
-  void SAOProcessCTULine( CodingStructure& cs, const UnitArea& lineArea );
-  void SAOPrepareCTULine( CodingStructure& cs, const UnitArea& lineArea );
+  //  void SAOProcess( CodingStructure& cs );
+  void SAOProcessCTU(CodingStructure& cs, const UnitArea& ctuArea);
+  void SAOProcessCTULine(CodingStructure& cs, const UnitArea& lineArea);
+  void SAOPrepareCTULine(CodingStructure& cs, const UnitArea& lineArea);
 
-  static int getMaxOffsetQVal( const int channelBitDepth ) { return ( 1 << ( std::min<int>( channelBitDepth, MAX_SAO_TRUNCATED_BITDEPTH ) - 5 ) ) - 1; }   // Table 9-32, inclusive
-  void setReshaper(Reshape * p) { m_pcReshape = p; }
+  static int getMaxOffsetQVal(const int channelBitDepth) {
+    return (1 << (std::min<int>(channelBitDepth, MAX_SAO_TRUNCATED_BITDEPTH) - 5)) - 1;
+  }  // Table 9-32, inclusive
+  void setReshaper(Reshape* p) { m_pcReshape = p; }
 
-protected:
-  void deriveLoopFilterBoundaryAvailibility( CodingStructure& cs,
-                                             const Position&  pos,
-                                             bool&            isLeftAvail,
-                                             bool&            isRightAvail,
-                                             bool&            isAboveAvail,
-                                             bool&            isBelowAvail,
-                                             bool&            isAboveLeftAvail,
-                                             bool&            isAboveRightAvail,
-                                             bool&            isBelowLeftAvail,
-                                             bool&            isBelowRightAvail ) const;
+ protected:
+  void deriveLoopFilterBoundaryAvailibility(CodingStructure& cs, const Position& pos, bool& isLeftAvail,
+                                            bool& isRightAvail, bool& isAboveAvail, bool& isBelowAvail,
+                                            bool& isAboveLeftAvail, bool& isAboveRightAvail, bool& isBelowLeftAvail,
+                                            bool& isBelowRightAvail) const;
 
-  static void offsetBlock_core( const int            channelBitDepth,
-                                const ClpRng&        clpRng,
-                                int                  typeIdx,
-                                int*                 offset,
-                                int                  startIdx,
-                                const Pel*           srcBlk,
-                                Pel*                 resBlk,
-                                ptrdiff_t            srcStride,
-                                ptrdiff_t            resStride,
-                                int                  width,
-                                int                  height,
-                                bool                 isLeftAvail,
-                                bool                 isRightAvail,
-                                bool                 isAboveAvail,
-                                bool                 isBelowAvail,
-                                bool                 isAboveLeftAvail,
-                                bool                 isAboveRightAvail,
-                                bool                 isBelowLeftAvail,
-                                bool                 isBelowRightAvail,
-                                std::vector<int8_t>* m_signLineBuf1,
-                                std::vector<int8_t>* m_signLineBuf2,
-                                bool                 isCtuCrossedByVirtualBoundaries,
-                                int                  horVirBndryPos[],
-                                int                  verVirBndryPos[],
-                                int                  numHorVirBndry,
-                                int                  numVerVirBndry );
+  static void offsetBlock_core(const int channelBitDepth, const ClpRng& clpRng, int typeIdx, int* offset, int startIdx,
+                               const Pel* srcBlk, Pel* resBlk, ptrdiff_t srcStride, ptrdiff_t resStride, int width,
+                               int height, bool isLeftAvail, bool isRightAvail, bool isAboveAvail, bool isBelowAvail,
+                               bool isAboveLeftAvail, bool isAboveRightAvail, bool isBelowLeftAvail,
+                               bool isBelowRightAvail, std::vector<int8_t>* m_signLineBuf1,
+                               std::vector<int8_t>* m_signLineBuf2, bool isCtuCrossedByVirtualBoundaries,
+                               int horVirBndryPos[], int verVirBndryPos[], int numHorVirBndry, int numVerVirBndry);
 
-  void ( *offsetBlock )( const int            channelBitDepth,
-                         const ClpRng&        clpRng,
-                         int                  typeIdx,
-                         int*                 offset,
-                         int                  startIdx,
-                         const Pel*           srcBlk,
-                         Pel*                 resBlk,
-                         ptrdiff_t            srcStride,
-                         ptrdiff_t            resStride,
-                         int                  width,
-                         int                  height,
-                         bool                 isLeftAvail,
-                         bool                 isRightAvail,
-                         bool                 isAboveAvail,
-                         bool                 isBelowAvail,
-                         bool                 isAboveLeftAvail,
-                         bool                 isAboveRightAvail,
-                         bool                 isBelowLeftAvail,
-                         bool                 isBelowRightAvail,
-                         std::vector<int8_t>* m_signLineBuf1,
-                         std::vector<int8_t>* m_signLineBuf2,
-                         bool                 isCtuCrossedByVirtualBoundaries,
-                         int                  horVirBndryPos[],
-                         int                  verVirBndryPos[],
-                         int                  numHorVirBndry,
-                         int                  numVerVirBndry );
+  void (*offsetBlock)(const int channelBitDepth, const ClpRng& clpRng, int typeIdx, int* offset, int startIdx,
+                      const Pel* srcBlk, Pel* resBlk, ptrdiff_t srcStride, ptrdiff_t resStride, int width, int height,
+                      bool isLeftAvail, bool isRightAvail, bool isAboveAvail, bool isBelowAvail, bool isAboveLeftAvail,
+                      bool isAboveRightAvail, bool isBelowLeftAvail, bool isBelowRightAvail,
+                      std::vector<int8_t>* m_signLineBuf1, std::vector<int8_t>* m_signLineBuf2,
+                      bool isCtuCrossedByVirtualBoundaries, int horVirBndryPos[], int verVirBndryPos[],
+                      int numHorVirBndry, int numVerVirBndry);
 
-  void invertQuantOffsets     ( ComponentID compIdx, int typeIdc, int typeAuxInfo, int* dstOffsets, int* srcOffsets ) const;
-  void reconstructBlkSAOParam ( SAOBlkParam& recParam, SAOBlkParam* mergeList[] ) const;
-  int  getMergeList           ( CodingStructure& cs, int ctuRsAddr, SAOBlkParam* mergeList[NUM_SAO_MERGE_TYPES] );
-  void offsetCTU              ( const UnitArea& area, const CPelUnitBuf& src, PelUnitBuf& res, SAOBlkParam& saoblkParam, CodingStructure& cs, std::vector<int8_t> &signLineBuf1, std::vector<int8_t> &signLineBuf2 );
+  void invertQuantOffsets(ComponentID compIdx, int typeIdc, int typeAuxInfo, int* dstOffsets, int* srcOffsets) const;
+  void reconstructBlkSAOParam(SAOBlkParam& recParam, SAOBlkParam* mergeList[]) const;
+  int getMergeList(CodingStructure& cs, int ctuRsAddr, SAOBlkParam* mergeList[NUM_SAO_MERGE_TYPES]);
+  void offsetCTU(const UnitArea& area, const CPelUnitBuf& src, PelUnitBuf& res, SAOBlkParam& saoblkParam,
+                 CodingStructure& cs, std::vector<int8_t>& signLineBuf1, std::vector<int8_t>& signLineBuf2);
 
-  static bool isCrossedByVirtualBoundaries( const PicHeader* picHeader, const Area& area, int& numHorVirBndry, int& numVerVirBndry, int horVirBndryPos[], int verVirBndryPos[] );
-  static bool isProcessDisabled( int xPos, int yPos, int numVerVirBndry, int numHorVirBndry, int verVirBndryPos[], int horVirBndryPos[] );
+  static bool isCrossedByVirtualBoundaries(const PicHeader* picHeader, const Area& area, int& numHorVirBndry,
+                                           int& numVerVirBndry, int horVirBndryPos[], int verVirBndryPos[]);
+  static bool isProcessDisabled(int xPos, int yPos, int numVerVirBndry, int numHorVirBndry, int verVirBndryPos[],
+                                int horVirBndryPos[]);
   Reshape* m_pcReshape;
-
 
 #ifdef TARGET_SIMD_X86
   void initSampleAdaptiveOffsetX86();
@@ -174,12 +134,10 @@ protected:
   void _initSampleAdaptiveOffsetX86();
 #endif
 
-
-
-protected:
-  std::array<uint32_t, MAX_NUM_COMPONENT> m_offsetStepLog2;   // offset step
-  PelStorage                              m_tempBuf;
-  uint32_t                                m_numberOfComponents;
+ protected:
+  std::array<uint32_t, MAX_NUM_COMPONENT> m_offsetStepLog2;  // offset step
+  PelStorage m_tempBuf;
+  uint32_t m_numberOfComponents;
 };
 
 //! \}

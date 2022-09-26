@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -51,7 +51,6 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef __INTRAPREDICTION__
 #define __INTRAPREDICTION__
 
-
 // Include files
 #include "Unit.h"
 #include "Buffer.h"
@@ -67,104 +66,113 @@ THE POSSIBILITY OF SUCH DAMAGE.
 // ====================================================================================================================
 
 /// prediction class
-enum PredBuf
-{
-  PRED_BUF_UNFILTERED = 0,
-  PRED_BUF_FILTERED   = 1,
-  NUM_PRED_BUF        = 2
-};
+enum PredBuf { PRED_BUF_UNFILTERED = 0, PRED_BUF_FILTERED = 1, NUM_PRED_BUF = 2 };
 
-static const uint32_t MAX_INTRA_FILTER_DEPTHS=8;
+static const uint32_t MAX_INTRA_FILTER_DEPTHS = 8;
 
-class IntraPrediction
-{
-private:
-
-  Pel* m_piYuvExt[MAX_NUM_COMPONENT][NUM_PRED_BUF];
+class IntraPrediction {
+ private:
+  Pel *m_piYuvExt[MAX_NUM_COMPONENT][NUM_PRED_BUF];
   PelBuf m_pelBufISPBase[2];
   PelBuf m_pelBufISP[2];
-  int  m_iYuvExtSize;
+  int m_iYuvExtSize;
 
-  Pel* m_yuvExt2[MAX_NUM_COMPONENT][4];
-  int  m_yuvExtSize2;
+  Pel *m_yuvExt2[MAX_NUM_COMPONENT][4];
+  int m_yuvExtSize2;
 
   static const uint8_t m_aucIntraFilter[MAX_NUM_CHANNEL_TYPE][MAX_INTRA_FILTER_DEPTHS];
 
-  unsigned m_auShiftLM[32]; // Table for substituting division operation by multiplication
+  unsigned m_auShiftLM[32];  // Table for substituting division operation by multiplication
 
-  Pel* m_piTemp;
-  Pel* m_pMdlmTemp; // for MDLM mode
+  Pel *m_piTemp;
+  Pel *m_pMdlmTemp;  // for MDLM mode
   MatrixIntraPrediction m_matrixIntraPred;
 
-protected:
-
-  ChromaFormat  m_currChromaFormat;
+ protected:
+  ChromaFormat m_currChromaFormat;
 
   int m_topRefLength;
   int m_leftRefLength;
   // prediction
-  void xPredIntraDc               ( const CPelBuf &pSrc, PelBuf &pDst, const ChannelType channelType,                                                                                          const bool enableBoundaryFilter = true, const int mrlIdx = 0 );
-  void xPredIntraAng              ( const CPelBuf &pSrc, PelBuf &pDst, const ChannelType channelType, const uint32_t dirMode, const ClpRng& clpRng, const SPS& sps,
-                                          int  multiRefIdx,
-                                    const bool useFilteredPredSamples,
-                                          bool &doPDPC,
-                                    const bool useISP = false,
-                                    const Size cuSize = Size( 0, 0 )
-                                   );
+  void xPredIntraDc(const CPelBuf &pSrc, PelBuf &pDst, const ChannelType channelType,
+                    const bool enableBoundaryFilter = true, const int mrlIdx = 0);
+  void xPredIntraAng(const CPelBuf &pSrc, PelBuf &pDst, const ChannelType channelType, const uint32_t dirMode,
+                     const ClpRng &clpRng, const SPS &sps, int multiRefIdx, const bool useFilteredPredSamples,
+                     bool &doPDPC, const bool useISP = false, const Size cuSize = Size(0, 0));
 
-  void xPredIntraBDPCM            ( const CPelBuf &pSrc, PelBuf &pDst, const uint32_t dirMode, const ClpRng& clpRng );
-  Pel  xGetPredValDc              ( const CPelBuf &pSrc, const Size &dstSize, const int mrlIdx );
-  
-  void xFillReferenceSamples      ( const CPelBuf &recoBuf,      Pel* refBufUnfiltered, const CompArea &area, const TransformUnit &tu ) const;
-  void xFilterReferenceSamples    ( const Pel* refBufUnfiltered, Pel* refBufFiltered, const CompArea &area, const SPS &sps, int multiRefIdx, ptrdiff_t predStride = 0 ) const;
+  void xPredIntraBDPCM(const CPelBuf &pSrc, PelBuf &pDst, const uint32_t dirMode, const ClpRng &clpRng);
+  Pel xGetPredValDc(const CPelBuf &pSrc, const Size &dstSize, const int mrlIdx);
 
-  static int getWideAngle         ( int width, int height, int predMode );
-  void setReferenceArrayLengths   ( const CompArea &area );
+  void xFillReferenceSamples(const CPelBuf &recoBuf, Pel *refBufUnfiltered, const CompArea &area,
+                             const TransformUnit &tu) const;
+  void xFilterReferenceSamples(const Pel *refBufUnfiltered, Pel *refBufFiltered, const CompArea &area, const SPS &sps,
+                               int multiRefIdx, ptrdiff_t predStride = 0) const;
 
-  void destroy                    ();
+  static int getWideAngle(int width, int height, int predMode);
+  void setReferenceArrayLengths(const CompArea &area);
 
-  void xFilterGroup               ( Pel* pMulDst[], int i, Pel const* const piSrc, int iRecStride, bool bAboveAvaillable, bool bLeftAvaillable);
-  void xGetLMParameters(const PredictionUnit &pu, const ComponentID compID, const CompArea& chromaArea, int& a, int& b, int& iShift);
-public:
+  void destroy();
+
+  void xFilterGroup(Pel *pMulDst[], int i, Pel const *const piSrc, int iRecStride, bool bAboveAvaillable,
+                    bool bLeftAvaillable);
+  void xGetLMParameters(const PredictionUnit &pu, const ComponentID compID, const CompArea &chromaArea, int &a, int &b,
+                        int &iShift);
+
+ public:
   IntraPrediction();
   virtual ~IntraPrediction();
 
-  void init                       (ChromaFormat chromaFormatIDC, const unsigned bitDepthY);
+  void init(ChromaFormat chromaFormatIDC, const unsigned bitDepthY);
 
   // Angular Intra
-  void predIntraAng               ( const ComponentID compId, PelBuf &piPred, const PredictionUnit &pu, const bool useFilteredPredSamples );
-  Pel*  getPredictorPtr           (const ComponentID compID, const bool bUseFilteredPredictions = false) { return m_piYuvExt[compID][bUseFilteredPredictions?PRED_BUF_FILTERED:PRED_BUF_UNFILTERED]; }
+  void predIntraAng(const ComponentID compId, PelBuf &piPred, const PredictionUnit &pu,
+                    const bool useFilteredPredSamples);
+  Pel *getPredictorPtr(const ComponentID compID, const bool bUseFilteredPredictions = false) {
+    return m_piYuvExt[compID][bUseFilteredPredictions ? PRED_BUF_FILTERED : PRED_BUF_UNFILTERED];
+  }
   // Cross-component Chroma
-  void predIntraChromaLM(const ComponentID compID, PelBuf &piPred, const PredictionUnit &pu, const CompArea& chromaArea, int intraDir);
+  void predIntraChromaLM(const ComponentID compID, PelBuf &piPred, const PredictionUnit &pu, const CompArea &chromaArea,
+                         int intraDir);
   void xGetLumaRecPixels(const PredictionUnit &pu, CompArea chromaArea);
   /// set parameters from CU data for accessing intra data
-  void initIntraPatternChType     (const TransformUnit &cu, const CompArea &area, const bool bFilterRefSamples = false );
-  void initIntraPatternChTypeISP  (const CodingUnit& cu, const CompArea& area, PelBuf& piReco);
-  const PelBuf& getISPBuffer      (const bool bUseFilteredPredictions = false) { return m_pelBufISP[bUseFilteredPredictions ? PRED_BUF_FILTERED : PRED_BUF_UNFILTERED]; }
+  void initIntraPatternChType(const TransformUnit &cu, const CompArea &area, const bool bFilterRefSamples = false);
+  void initIntraPatternChTypeISP(const CodingUnit &cu, const CompArea &area, PelBuf &piReco);
+  const PelBuf &getISPBuffer(const bool bUseFilteredPredictions = false) {
+    return m_pelBufISP[bUseFilteredPredictions ? PRED_BUF_FILTERED : PRED_BUF_UNFILTERED];
+  }
 
   // Matrix-based intra prediction
-  void initIntraMip               (const PredictionUnit &pu, const CompArea &area);
-  void predIntraMip               (const ComponentID compId, PelBuf &piPred, const PredictionUnit &pu);
+  void initIntraMip(const PredictionUnit &pu, const CompArea &area);
+  void predIntraMip(const ComponentID compId, PelBuf &piPred, const PredictionUnit &pu);
 
-  static bool getUseFilterRef           ( const int predMode, const int dirMode );
-  static bool useFilteredIntraRefSamples( const ComponentID &compID, const PredictionUnit &pu, const UnitArea &tuArea );
+  static bool getUseFilterRef(const int predMode, const int dirMode);
+  static bool useFilteredIntraRefSamples(const ComponentID &compID, const PredictionUnit &pu, const UnitArea &tuArea);
 
-  void geneWeightedPred           (const ComponentID compId, PelBuf &pred, const PredictionUnit &pu, Pel *srcBuf);
-  Pel* getPredictorPtr2           (const ComponentID compID, uint32_t idx) { return m_yuvExt2[compID][idx]; }
-  void switchBuffer               (const PredictionUnit &pu, ComponentID compID, PelBuf srcBuff, Pel *dst);
-  void geneIntrainterPred         (const CodingUnit &cu);
+  void geneWeightedPred(const ComponentID compId, PelBuf &pred, const PredictionUnit &pu, Pel *srcBuf);
+  Pel *getPredictorPtr2(const ComponentID compID, uint32_t idx) { return m_yuvExt2[compID][idx]; }
+  void switchBuffer(const PredictionUnit &pu, ComponentID compID, PelBuf srcBuff, Pel *dst);
+  void geneIntrainterPred(const CodingUnit &cu);
 
-  void ( *IntraPredAngleCore4 )         ( Pel* pDstBuf,const ptrdiff_t dstStride,Pel* refMain,int width,int height,int deltaPos,int intraPredAngle,const TFilterCoeff *ff,const bool useCubicFilter,const ClpRng& clpRng);
-  void ( *IntraPredAngleCore8 )         ( Pel* pDstBuf,const ptrdiff_t dstStride,Pel* refMain,int width,int height,int deltaPos,int intraPredAngle,const TFilterCoeff *ff,const bool useCubicFilter,const ClpRng& clpRng);
+  void (*IntraPredAngleCore4)(Pel *pDstBuf, const ptrdiff_t dstStride, Pel *refMain, int width, int height,
+                              int deltaPos, int intraPredAngle, const TFilterCoeff *ff, const bool useCubicFilter,
+                              const ClpRng &clpRng);
+  void (*IntraPredAngleCore8)(Pel *pDstBuf, const ptrdiff_t dstStride, Pel *refMain, int width, int height,
+                              int deltaPos, int intraPredAngle, const TFilterCoeff *ff, const bool useCubicFilter,
+                              const ClpRng &clpRng);
 
-  void( *IntraPredAngleChroma4 )      ( int16_t* pDst, const ptrdiff_t dstStride, int16_t* pBorder, int width, int height, int deltaPos, int intraPredAngle );
-  void( *IntraPredAngleChroma8 )      ( int16_t* pDst, const ptrdiff_t dstStride, int16_t* pBorder, int width, int height, int deltaPos, int intraPredAngle );
+  void (*IntraPredAngleChroma4)(int16_t *pDst, const ptrdiff_t dstStride, int16_t *pBorder, int width, int height,
+                                int deltaPos, int intraPredAngle);
+  void (*IntraPredAngleChroma8)(int16_t *pDst, const ptrdiff_t dstStride, int16_t *pBorder, int width, int height,
+                                int deltaPos, int intraPredAngle);
 
-  void  ( *IntraPredSampleFilter8 )      (Pel *ptrSrc,const ptrdiff_t  srcStride,PelBuf &piPred,const uint32_t uiDirMode,const ClpRng& clpRng);
-  void  ( *IntraPredSampleFilter16 )      (Pel *ptrSrc,const ptrdiff_t  srcStride,PelBuf &piPred,const uint32_t uiDirMode,const ClpRng& clpRng);
-  void  ( *xPredIntraPlanar)            ( const CPelBuf &pSrc, PelBuf &pDst, const SPS& sps );
+  void (*IntraPredSampleFilter8)(Pel *ptrSrc, const ptrdiff_t srcStride, PelBuf &piPred, const uint32_t uiDirMode,
+                                 const ClpRng &clpRng);
+  void (*IntraPredSampleFilter16)(Pel *ptrSrc, const ptrdiff_t srcStride, PelBuf &piPred, const uint32_t uiDirMode,
+                                  const ClpRng &clpRng);
+  void (*xPredIntraPlanar)(const CPelBuf &pSrc, PelBuf &pDst, const SPS &sps);
 
-  void ( *GetLumaRecPixel420)  (const int width,const int height, const Pel* pRecSrc0,const ptrdiff_t iRecStride,Pel* pDst0,const ptrdiff_t iDstStride);
+  void (*GetLumaRecPixel420)(const int width, const int height, const Pel *pRecSrc0, const ptrdiff_t iRecStride,
+                             Pel *pDst0, const ptrdiff_t iDstStride);
 
 #if ENABLE_SIMD_OPT_INTRAPRED
   void initIntraPredictionX86();
@@ -172,9 +180,8 @@ public:
   void _initIntraPredictionX86();
 
 #endif
-
 };
 
 //! \}
 
-#endif // __INTRAPREDICTION__
+#endif  // __INTRAPREDICTION__

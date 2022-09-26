@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -65,126 +65,105 @@ struct Size;
 // Class definition
 // ====================================================================================================================
 
-enum MvPrecision
-{
-  MV_PRECISION_4PEL     = 0,      // 4-pel
-  MV_PRECISION_INT      = 2,      // 1-pel, shift 2 bits from 4-pel
-  MV_PRECISION_HALF     = 3,      // 1/2-pel
-  MV_PRECISION_QUARTER  = 4,      // 1/4-pel (the precision of regular MV difference signaling), shift 4 bits from 4-pel
-  MV_PRECISION_INTERNAL = 6,      // 1/16-pel (the precision of internal MV), shift 6 bits from 4-pel
+enum MvPrecision {
+  MV_PRECISION_4PEL = 0,      // 4-pel
+  MV_PRECISION_INT = 2,       // 1-pel, shift 2 bits from 4-pel
+  MV_PRECISION_HALF = 3,      // 1/2-pel
+  MV_PRECISION_QUARTER = 4,   // 1/4-pel (the precision of regular MV difference signaling), shift 4 bits from 4-pel
+  MV_PRECISION_INTERNAL = 6,  // 1/16-pel (the precision of internal MV), shift 6 bits from 4-pel
 };
 
 /// basic motion vector class
-class Mv
-{
-private:
+class Mv {
+ private:
   static const MvPrecision m_amvrPrecision[4];
   static const int mvClipPeriod = (1 << MV_BITS);
   static const int halMvClipPeriod = (1 << (MV_BITS - 1));
 
-public:
-  int   hor;     ///< horizontal component of motion vector
-  int   ver;     ///< vertical component of motion vector
+ public:
+  int hor;  ///< horizontal component of motion vector
+  int ver;  ///< vertical component of motion vector
 
   // ------------------------------------------------------------------------------------------------------------------
   // constructors
   // ------------------------------------------------------------------------------------------------------------------
 
-  Mv(                    ) : hor( 0    ), ver( 0    ) {}
-  Mv( int iHor, int iVer ) : hor( iHor ), ver( iVer ) {}
+  Mv() : hor(0), ver(0) {}
+  Mv(int iHor, int iVer) : hor(iHor), ver(iVer) {}
 
   // ------------------------------------------------------------------------------------------------------------------
   // set
   // ------------------------------------------------------------------------------------------------------------------
 
-  void  set       ( int iHor, int iVer)     { hor = iHor;  ver = iVer; }
-  void  setHor    ( int i )                 { hor = i;                 }
-  void  setVer    ( int i )                 { ver = i;                 }
-  void  setZero   ()                        { hor = ver = 0;           }
+  void set(int iHor, int iVer) {
+    hor = iHor;
+    ver = iVer;
+  }
+  void setHor(int i) { hor = i; }
+  void setVer(int i) { ver = i; }
+  void setZero() { hor = ver = 0; }
 
   // ------------------------------------------------------------------------------------------------------------------
   // get
   // ------------------------------------------------------------------------------------------------------------------
 
-  int   getHor    () const { return hor;          }
-  int   getVer    () const { return ver;          }
-  int   getAbsHor () const { return abs( hor );   }
-  int   getAbsVer () const { return abs( ver );   }
+  int getHor() const { return hor; }
+  int getVer() const { return ver; }
+  int getAbsHor() const { return abs(hor); }
+  int getAbsVer() const { return abs(ver); }
 
   // ------------------------------------------------------------------------------------------------------------------
   // operations
   // ------------------------------------------------------------------------------------------------------------------
 
-  const Mv& operator += ( const Mv& _rcMv )
-  {
+  const Mv& operator+=(const Mv& _rcMv) {
     hor += _rcMv.hor;
     ver += _rcMv.ver;
 
-    return  *this;
+    return *this;
   }
 
-  const Mv& operator-= (const Mv& _rcMv)
-  {
+  const Mv& operator-=(const Mv& _rcMv) {
     hor -= _rcMv.hor;
     ver -= _rcMv.ver;
 
-    return  *this;
+    return *this;
   }
 
-  const Mv& operator<<= (const int i)
-  {
+  const Mv& operator<<=(const int i) {
     hor <<= i;
     ver <<= i;
-    return  *this;
+    return *this;
   }
 
-  const Mv& operator>>= ( const int i )
-  {
-    if (i != 0)
-    {
+  const Mv& operator>>=(const int i) {
+    if (i != 0) {
       const int offset = (1 << (i - 1));
       hor = (hor + offset - (hor >= 0)) >> i;
       ver = (ver + offset - (ver >= 0)) >> i;
     }
-    return  *this;
+    return *this;
   }
 
-  const Mv operator - ( const Mv& rcMv ) const
-  {
-    return Mv( hor - rcMv.hor, ver - rcMv.ver );
+  const Mv operator-(const Mv& rcMv) const { return Mv(hor - rcMv.hor, ver - rcMv.ver); }
+
+  const Mv operator+(const Mv& rcMv) const { return Mv(hor + rcMv.hor, ver + rcMv.ver); }
+
+  bool operator==(const Mv& rcMv) const { return (hor == rcMv.hor && ver == rcMv.ver); }
+
+  bool operator!=(const Mv& rcMv) const { return !(*this == rcMv); }
+
+  const Mv scaleMv(int iScale) const {
+    const int mvx = Clip3(-131072, 131071, (iScale * getHor() + 128 - (iScale * getHor() >= 0)) >> 8);
+    const int mvy = Clip3(-131072, 131071, (iScale * getVer() + 128 - (iScale * getVer() >= 0)) >> 8);
+    return Mv(mvx, mvy);
   }
 
-  const Mv operator + ( const Mv& rcMv ) const
-  {
-    return Mv( hor + rcMv.hor, ver + rcMv.ver );
-  }
-
-  bool operator== ( const Mv& rcMv ) const
-  {
-    return ( hor == rcMv.hor && ver == rcMv.ver );
-  }
-
-  bool operator!= ( const Mv& rcMv ) const
-  {
-    return !( *this == rcMv );
-  }
-
-  const Mv scaleMv( int iScale ) const
-  {
-    const int mvx = Clip3( -131072, 131071, (iScale * getHor() + 128 - (iScale * getHor() >= 0)) >> 8);
-    const int mvy = Clip3( -131072, 131071, (iScale * getVer() + 128 - (iScale * getVer() >= 0)) >> 8);
-    return Mv( mvx, mvy );
-  }
-
-  void changePrecision(const MvPrecision& src, const MvPrecision& dst)
-  {
+  void changePrecision(const MvPrecision& src, const MvPrecision& dst) {
     const int shift = (int)dst - (int)src;
-    if (shift >= 0)
-    {
+    if (shift >= 0) {
       *this <<= shift;
-    }
-    else
-    {
+    } else {
       const int rightShift = -shift;
       const int nOffset = 1 << (rightShift - 1);
       hor = hor >= 0 ? (hor + nOffset - 1) >> rightShift : (hor + nOffset) >> rightShift;
@@ -192,31 +171,24 @@ public:
     }
   }
 
-  void changePrecisionAmvr(const int amvr, const MvPrecision& dst)
-  {
-    changePrecision(m_amvrPrecision[amvr], dst);
-  }
+  void changePrecisionAmvr(const int amvr, const MvPrecision& dst) { changePrecision(m_amvrPrecision[amvr], dst); }
 
-  void roundToPrecision(const MvPrecision& src, const MvPrecision& dst)
-  {
+  void roundToPrecision(const MvPrecision& src, const MvPrecision& dst) {
     changePrecision(src, dst);
     changePrecision(dst, src);
   }
 
-  void roundToAmvrSignalPrecision(const MvPrecision& src, const int amvr)
-  {
+  void roundToAmvrSignalPrecision(const MvPrecision& src, const int amvr) {
     roundToPrecision(src, m_amvrPrecision[amvr]);
   }
 
-  Mv getSymmvdMv(const Mv& curMvPred, const Mv& tarMvPred)
-  {
+  Mv getSymmvdMv(const Mv& curMvPred, const Mv& tarMvPred) {
     return Mv(tarMvPred.hor - hor + curMvPred.hor, tarMvPred.ver - ver + curMvPred.ver);
   }
 
-  void clipToStorageBitDepth()
-  {
-    hor = Clip3( -( 1 << 17 ), ( 1 << 17 ) - 1, hor );
-    ver = Clip3( -( 1 << 17 ), ( 1 << 17 ) - 1, ver );
+  void clipToStorageBitDepth() {
+    hor = Clip3(-(1 << 17), (1 << 17) - 1, hor);
+    ver = Clip3(-(1 << 17), (1 << 17) - 1, ver);
   }
 
   void mvCliptoStorageBitDepth()  // periodic clipping
@@ -226,41 +198,36 @@ public:
     ver = (ver + mvClipPeriod) & (mvClipPeriod - 1);
     ver = (ver >= halMvClipPeriod) ? (ver - mvClipPeriod) : ver;
   }
-};// END CLASS DEFINITION MV
+};  // END CLASS DEFINITION MV
 
-namespace std
-{
-  template <>
-  struct hash<Mv> : public unary_function<Mv, uint64_t>
-  {
-    uint64_t operator()(const Mv& value) const
-    {
-      return (((uint64_t)value.hor << 32) + value.ver);
-    }
-  };
+namespace std {
+template <>
+struct hash<Mv> : public unary_function<Mv, uint64_t> {
+  uint64_t operator()(const Mv& value) const { return (((uint64_t)value.hor << 32) + value.ver); }
 };
+};  // namespace std
 
 #if JVET_R0058
-extern void(*clipMv) ( Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps );
-void clipMvInPic     ( Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps );
-void clipMvInSubpic  ( Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps );
-bool wrapClipMv      ( Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps );
+extern void (*clipMv)(Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps);
+void clipMvInPic(Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps);
+void clipMvInSubpic(Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps);
+bool wrapClipMv(Mv& rcMv, const Position& pos, const struct Size& size, const SPS& sps, const PPS& pps);
 #else
-void clipMv    ( Mv& rcMv, const Position& pos,                   const SPS& sps, const PPS& pps, const int w = 0, const int h = 0 );
-void clipMv    ( int& mvx, int& mvy, const Position& pos,                   const SPS& sps, const PPS& pps, const int w = 0, const int h = 0 );
-bool wrapClipMv( Mv& rcMv, const Position& pos, const Size& size, const SPS& sps, const PPS& pps );
-bool wrapClipMv( int& mvx, int& mvy, const Position& pos, const Size& size, const SPS& sps, const PPS& pps );
+void clipMv(Mv& rcMv, const Position& pos, const SPS& sps, const PPS& pps, const int w = 0, const int h = 0);
+void clipMv(int& mvx, int& mvy, const Position& pos, const SPS& sps, const PPS& pps, const int w = 0, const int h = 0);
+bool wrapClipMv(Mv& rcMv, const Position& pos, const Size& size, const SPS& sps, const PPS& pps);
+bool wrapClipMv(int& mvx, int& mvy, const Position& pos, const Size& size, const SPS& sps, const PPS& pps);
 #endif
 
 //#if JVET_O1164_PS
-//bool wrapClipMv( Mv& rcMv, const Position& pos, const Size& size, const SPS& sps, const PPS& pps );
-//bool wrapClipMv( int& mvx, int& mvy, const Position& pos, const Size& size, const SPS& sps, const PPS& pps );
+// bool wrapClipMv( Mv& rcMv, const Position& pos, const Size& size, const SPS& sps, const PPS& pps );
+// bool wrapClipMv( int& mvx, int& mvy, const Position& pos, const Size& size, const SPS& sps, const PPS& pps );
 //#else
-//bool wrapClipMv( Mv& rcMv, const Position& pos, const Size& size, const SPS& sps );
+// bool wrapClipMv( Mv& rcMv, const Position& pos, const Size& size, const SPS& sps );
 //#endif
 
-void roundAffineMv( int& mvx, int& mvy, int nShift );
+void roundAffineMv(int& mvx, int& mvy, int nShift);
 
 //! \}
 
-#endif // __MV__
+#endif  // __MV__

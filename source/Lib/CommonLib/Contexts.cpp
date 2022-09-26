@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -54,81 +54,55 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <limits>
 
+const uint8_t ProbModelTables::m_RenormTable_32[32] = {6, 5, 4, 4, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2,
+                                                       1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
-const uint8_t ProbModelTables::m_RenormTable_32[32] =
-{
-  6,  5,  4,  4,
-  3,  3,  3,  3,
-  2,  2,  2,  2,
-  2,  2,  2,  2,
-  1,  1,  1,  1,
-  1,  1,  1,  1,
-  1,  1,  1,  1,
-  1,  1,  1,  1
-};
+void BinProbModel::init(int qp, int initId) {
+  int slope = (initId >> 3) - 4;
+  int offset = ((initId & 7) * 18) + 1;
+  int inistate = ((slope * (qp - 16)) >> 1) + offset;
+  int state_clip = inistate < 1 ? 1 : inistate > 127 ? 127 : inistate;
+  int p1 = (state_clip << 8);
 
-
-void BinProbModel::init( int qp, int initId )
-{
-  int slope       =   ( initId >> 3 ) -  4;
-  int offset      = ( ( initId  & 7 ) * 18 ) + 1;
-  int inistate    = ( ( slope   * ( qp - 16 ) ) >> 1 ) + offset;
-  int state_clip  = inistate < 1 ? 1 : inistate > 127 ? 127 : inistate;
-  int p1          = ( state_clip << 8 );
-
-  m_state[0]      = p1 & MASK_0;
-  m_state[1]      = p1 & MASK_1;
+  m_state[0] = p1 & MASK_0;
+  m_state[1] = p1 & MASK_1;
 }
 
-
-
-
-CtxSet::CtxSet( std::initializer_list<CtxSet> ctxSets )
-{
-  uint16_t  minOffset = std::numeric_limits<uint16_t>::max();
-  uint16_t  maxOffset = 0;
-  for( auto iter = ctxSets.begin(); iter != ctxSets.end(); iter++ )
-  {
-    minOffset = std::min<uint16_t>( minOffset, (*iter).Offset              );
-    maxOffset = std::max<uint16_t>( maxOffset, (*iter).Offset+(*iter).Size );
+CtxSet::CtxSet(std::initializer_list<CtxSet> ctxSets) {
+  uint16_t minOffset = std::numeric_limits<uint16_t>::max();
+  uint16_t maxOffset = 0;
+  for (auto iter = ctxSets.begin(); iter != ctxSets.end(); iter++) {
+    minOffset = std::min<uint16_t>(minOffset, (*iter).Offset);
+    maxOffset = std::max<uint16_t>(maxOffset, (*iter).Offset + (*iter).Size);
   }
-  Offset  = minOffset;
-  Size    = maxOffset - minOffset;
+  Offset = minOffset;
+  Size = maxOffset - minOffset;
 }
 
-
-
-
-
-const std::vector<uint8_t>& ContextSetCfg::getInitTable( unsigned initId )
-{
-  CHECK( initId >= (unsigned)sm_InitTables.size(),
-         "Invalid initId (" << initId << "), only " << sm_InitTables.size() << " tables defined." );
+const std::vector<uint8_t>& ContextSetCfg::getInitTable(unsigned initId) {
+  CHECK(initId >= (unsigned)sm_InitTables.size(),
+        "Invalid initId (" << initId << "), only " << sm_InitTables.size() << " tables defined.");
   return sm_InitTables[initId];
 }
 
-
-CtxSet ContextSetCfg::addCtxSet( std::initializer_list<std::initializer_list<uint8_t>> initSet2d )
-{
-  const std::size_t startIdx  = sm_InitTables[0].size();
-  const std::size_t numValues = ( *initSet2d.begin() ).size();
-        std::size_t setId     = 0;
-  for( auto setIter = initSet2d.begin(); setIter != initSet2d.end() && setId < sm_InitTables.size(); setIter++, setId++ )
-  {
-    const std::initializer_list<uint8_t>& initSet   = *setIter;
-    std::vector<uint8_t>&           initTable = sm_InitTables[setId];
-    CHECK( initSet.size() != numValues,
-           "Number of init values do not match for all sets (" << initSet.size() << " != " << numValues << ")." );
-    initTable.resize( startIdx + numValues );
+CtxSet ContextSetCfg::addCtxSet(std::initializer_list<std::initializer_list<uint8_t>> initSet2d) {
+  const std::size_t startIdx = sm_InitTables[0].size();
+  const std::size_t numValues = (*initSet2d.begin()).size();
+  std::size_t setId = 0;
+  for (auto setIter = initSet2d.begin(); setIter != initSet2d.end() && setId < sm_InitTables.size();
+       setIter++, setId++) {
+    const std::initializer_list<uint8_t>& initSet = *setIter;
+    std::vector<uint8_t>& initTable = sm_InitTables[setId];
+    CHECK(initSet.size() != numValues,
+          "Number of init values do not match for all sets (" << initSet.size() << " != " << numValues << ").");
+    initTable.resize(startIdx + numValues);
     std::size_t elemId = startIdx;
-    for( auto elemIter = ( *setIter ).begin(); elemIter != ( *setIter ).end(); elemIter++, elemId++ )
-    {
+    for (auto elemIter = (*setIter).begin(); elemIter != (*setIter).end(); elemIter++, elemId++) {
       initTable[elemId] = *elemIter;
     }
   }
-  return CtxSet( (uint16_t)startIdx, (uint16_t)numValues );
+  return CtxSet((uint16_t)startIdx, (uint16_t)numValues);
 }
-
 
 #define CNU 35
 std::vector<std::vector<uint8_t>> ContextSetCfg::sm_InitTables(NUMBER_OF_SLICE_TYPES + 1);
@@ -810,51 +784,41 @@ const CtxSet ContextSetCfg::TsResidualSign = ContextSetCfg::addCtxSet
 
 const unsigned ContextSetCfg::NumberOfContexts = (unsigned)ContextSetCfg::sm_InitTables[0].size();
 
-
 // combined sets
-const CtxSet ContextSetCfg::Sao = { ContextSetCfg::SaoMergeFlag, ContextSetCfg::SaoTypeIdx };
+const CtxSet ContextSetCfg::Sao = {ContextSetCfg::SaoMergeFlag, ContextSetCfg::SaoTypeIdx};
 
-const CtxSet ContextSetCfg::Alf = { ContextSetCfg::ctbAlfFlag, ContextSetCfg::ctbAlfAlternative, ContextSetCfg::AlfUseTemporalFilt };
+const CtxSet ContextSetCfg::Alf = {ContextSetCfg::ctbAlfFlag, ContextSetCfg::ctbAlfAlternative,
+                                   ContextSetCfg::AlfUseTemporalFilt};
 
-CtxStore::CtxStore()
-  : m_CtxBuffer ()
-  , m_Ctx       ( nullptr )
-{}
+CtxStore::CtxStore() : m_CtxBuffer(), m_Ctx(nullptr) {}
 
-CtxStore::CtxStore( bool dummy )
-  : m_CtxBuffer ( ContextSetCfg::NumberOfContexts )
-  , m_Ctx       ( m_CtxBuffer.data() )
-{}
+CtxStore::CtxStore(bool dummy) : m_CtxBuffer(ContextSetCfg::NumberOfContexts), m_Ctx(m_CtxBuffer.data()) {}
 
-CtxStore::CtxStore( const CtxStore& ctxStore )
-  : m_CtxBuffer ( ctxStore.m_CtxBuffer )
-  , m_Ctx       ( m_CtxBuffer.data() )
-{}
+CtxStore::CtxStore(const CtxStore& ctxStore) : m_CtxBuffer(ctxStore.m_CtxBuffer), m_Ctx(m_CtxBuffer.data()) {}
 
-void CtxStore::init( int qp, int initId )
-{
-  const std::vector<uint8_t>& initTable = ContextSetCfg::getInitTable( initId );
-  CHECK( m_CtxBuffer.size() != initTable.size(),
-        "Size of init table (" << initTable.size() << ") does not match size of context buffer (" << m_CtxBuffer.size() << ")." );
-  const std::vector<uint8_t> &rateInitTable = ContextSetCfg::getInitTable(NUMBER_OF_SLICE_TYPES);
+void CtxStore::init(int qp, int initId) {
+  const std::vector<uint8_t>& initTable = ContextSetCfg::getInitTable(initId);
+  CHECK(m_CtxBuffer.size() != initTable.size(), "Size of init table (" << initTable.size()
+                                                                       << ") does not match size of context buffer ("
+                                                                       << m_CtxBuffer.size() << ").");
+  const std::vector<uint8_t>& rateInitTable = ContextSetCfg::getInitTable(NUMBER_OF_SLICE_TYPES);
   CHECK(m_CtxBuffer.size() != rateInitTable.size(),
         "Size of rate init table (" << rateInitTable.size() << ") does not match size of context buffer ("
                                     << m_CtxBuffer.size() << ").");
-  int clippedQP = Clip3( 0, MAX_QP, qp );
-  for( std::size_t k = 0; k < m_CtxBuffer.size(); k++ )
-  {
-    m_CtxBuffer[k].init( clippedQP, initTable[k] );
+  int clippedQP = Clip3(0, MAX_QP, qp);
+  for (std::size_t k = 0; k < m_CtxBuffer.size(); k++) {
+    m_CtxBuffer[k].init(clippedQP, initTable[k]);
     m_CtxBuffer[k].setLog2WindowSize(rateInitTable[k]);
   }
 }
 
-Ctx::Ctx() : m_CtxStore_Std( true ) {}
-Ctx::Ctx( const Ctx& ctx ) : m_CtxStore_Std( ctx.m_CtxStore_Std ) {}
+Ctx::Ctx() : m_CtxStore_Std(true) {}
+Ctx::Ctx(const Ctx& ctx) : m_CtxStore_Std(ctx.m_CtxStore_Std) {}
 
-#if defined( __INTEL_COMPILER )
-Ctx::operator explicit const CtxStore&()         const { return m_CtxStore_Std; }
-Ctx::operator explicit       CtxStore&()               { return m_CtxStore_Std; }
+#if defined(__INTEL_COMPILER)
+Ctx::operator explicit const CtxStore &() const { return m_CtxStore_Std; }
+Ctx::operator explicit CtxStore &() { return m_CtxStore_Std; }
 #else
-Ctx::operator const CtxStore&()         const { return m_CtxStore_Std; }
-Ctx::operator       CtxStore&()               { return m_CtxStore_Std; }
+Ctx::operator const CtxStore&() const { return m_CtxStore_Std; }
+Ctx::operator CtxStore&() { return m_CtxStore_Std; }
 #endif

@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -50,7 +50,6 @@ THE POSSIBILITY OF SUCH DAMAGE.
  * \brief   Initialize encoder SIMD functions.
  */
 
-
 #include "CommonLib/CommonDef.h"
 #include "CommonLib/InterpolationFilter.h"
 #include "CommonLib/TrQuant.h"
@@ -66,34 +65,31 @@ THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef TARGET_SIMD_X86
 
-
-#if ENABLE_SIMD_OPT_MCIF
-void InterpolationFilter::initInterpolationFilterX86( /*int iBitDepthY, int iBitDepthC*/ )
-{
+#  if ENABLE_SIMD_OPT_MCIF
+void InterpolationFilter::initInterpolationFilterX86(/*int iBitDepthY, int iBitDepthC*/) {
   auto vext = read_x86_extension_flags();
-  switch (vext){
-  case AVX512:
-  case AVX2:
-    _initInterpolationFilterX86<AVX2>(/*iBitDepthY, iBitDepthC*/);
-    break;
-  case AVX:
-    _initInterpolationFilterX86<AVX>(/*iBitDepthY, iBitDepthC*/);
-    break;
-  case SSE42:
-  case SSE41:
-    _initInterpolationFilterX86<SSE41>(/*iBitDepthY, iBitDepthC*/);
-    break;
-  default:
-    break;
+  switch (vext) {
+    case AVX512:
+    case AVX2:
+      _initInterpolationFilterX86<AVX2>(/*iBitDepthY, iBitDepthC*/);
+      break;
+    case AVX:
+      _initInterpolationFilterX86<AVX>(/*iBitDepthY, iBitDepthC*/);
+      break;
+    case SSE42:
+    case SSE41:
+      _initInterpolationFilterX86<SSE41>(/*iBitDepthY, iBitDepthC*/);
+      break;
+    default:
+      break;
   }
 }
-#endif
+#  endif
 
-#if ENABLE_SIMD_OPT_BUFFER
-void PelBufferOps::initPelBufOpsX86()
-{
+#  if ENABLE_SIMD_OPT_BUFFER
+void PelBufferOps::initPelBufOpsX86() {
   auto vext = read_x86_extension_flags();
-  switch (vext){
+  switch (vext) {
     case AVX512:
     case AVX2:
       _initPelBufOpsX86<AVX2>();
@@ -109,16 +105,12 @@ void PelBufferOps::initPelBufOpsX86()
       break;
   }
 }
-#endif
+#  endif
 
-
-
-
-#if ENABLE_SIMD_OPT_DIST
-void RdCost::initRdCostX86()
-{
+#  if ENABLE_SIMD_OPT_DIST
+void RdCost::initRdCostX86() {
   auto vext = read_x86_extension_flags();
-  switch (vext){
+  switch (vext) {
     case AVX512:
     case AVX2:
       _initRdCostX86<AVX2>();
@@ -134,83 +126,76 @@ void RdCost::initRdCostX86()
       break;
   }
 }
-#endif
+#  endif
 
-#if ENABLE_SIMD_OPT_ALF
-void AdaptiveLoopFilter::initAdaptiveLoopFilterX86()
-{
+#  if ENABLE_SIMD_OPT_ALF
+void AdaptiveLoopFilter::initAdaptiveLoopFilterX86() {
   auto vext = read_x86_extension_flags();
-  switch ( vext )
-  {
-  case AVX512:
-  case AVX2:
-    _initAdaptiveLoopFilterX86<AVX2>();
-    break;
-  case AVX:
-    _initAdaptiveLoopFilterX86<AVX>();
-    break;
-  case SSE42:
-  case SSE41:
-    _initAdaptiveLoopFilterX86<SSE41>();
-    break;
-  default:
-    break;
+  switch (vext) {
+    case AVX512:
+    case AVX2:
+      _initAdaptiveLoopFilterX86<AVX2>();
+      break;
+    case AVX:
+      _initAdaptiveLoopFilterX86<AVX>();
+      break;
+    case SSE42:
+    case SSE41:
+      _initAdaptiveLoopFilterX86<SSE41>();
+      break;
+    default:
+      break;
   }
 }
-#endif
+#  endif
 
-#if ENABLE_SIMD_DBLF
-void LoopFilter::initLoopFilterX86()
-{
+#  if ENABLE_SIMD_DBLF
+void LoopFilter::initLoopFilterX86() {
   auto vext = read_x86_extension_flags();
-  switch ( vext )
-  {
-  case AVX512:
-  case AVX2:
-    _initLoopFilterX86<AVX2>();
-    break;
-  case AVX:
-    _initLoopFilterX86<AVX>();
-    break;
-  case SSE42:
-  case SSE41:
-    _initLoopFilterX86<SSE41>();
-    break;
-  default:
-    break;
+  switch (vext) {
+    case AVX512:
+    case AVX2:
+      _initLoopFilterX86<AVX2>();
+      break;
+    case AVX:
+      _initLoopFilterX86<AVX>();
+      break;
+    case SSE42:
+    case SSE41:
+      _initLoopFilterX86<SSE41>();
+      break;
+    default:
+      break;
   }
 }
-#endif
+#  endif
 
-#if ENABLE_SIMD_TCOEFF_OPS
-void TCoeffOps::initTCoeffOps()
-{
+#  if ENABLE_SIMD_TCOEFF_OPS
+void TCoeffOps::initTCoeffOps() {
   auto vext = read_x86_extension_flags();
 
-  switch( vext )
-  {
-  case AVX512:
-  case AVX2:
-    _initTCoeffOps<AVX2>();
-    break;
-  case AVX:
-    _initTCoeffOps<AVX>();
-    break;
-  case SSE42:
-  case SSE41:
-    _initTCoeffOps<SSE41>();
-    break;
-  default:
-  break;
+  switch (vext) {
+    case AVX512:
+    case AVX2:
+      _initTCoeffOps<AVX2>();
+      break;
+    case AVX:
+      _initTCoeffOps<AVX>();
+      break;
+    case SSE42:
+    case SSE41:
+      _initTCoeffOps<SSE41>();
+      break;
+    default:
+      break;
   }
 }
-#endif
+#  endif
 
-#if ENABLE_SIMD_OPT_INTRAPRED
-void IntraPrediction::initIntraPredictionX86()
-{
+#  if ENABLE_SIMD_OPT_INTRAPRED
+void IntraPrediction::initIntraPredictionX86() {
   auto vext = read_x86_extension_flags();
-  switch (vext){
+  switch (vext) {
     case AVX512:
     case AVX2:
       _initIntraPredictionX86<AVX2>();
@@ -225,15 +210,13 @@ void IntraPrediction::initIntraPredictionX86()
     default:
       break;
   }
-
 }
 
-#endif
-#if ENABLE_SIMD_OPT_SAO
-void SampleAdaptiveOffset::initSampleAdaptiveOffsetX86()
-{
+#  endif
+#  if ENABLE_SIMD_OPT_SAO
+void SampleAdaptiveOffset::initSampleAdaptiveOffsetX86() {
   auto vext = read_x86_extension_flags();
-  switch (vext){
+  switch (vext) {
     case AVX512:
     case AVX2:
       _initSampleAdaptiveOffsetX86<AVX2>();
@@ -248,16 +231,14 @@ void SampleAdaptiveOffset::initSampleAdaptiveOffsetX86()
     default:
       break;
   }
-
 }
 
-#endif
+#  endif
 
-#if ENABLE_SIMD_OPT_BIO
-void InterPrediction::initInterPredictionX86()
-{
+#  if ENABLE_SIMD_OPT_BIO
+void InterPrediction::initInterPredictionX86() {
   auto vext = read_x86_extension_flags();
-  switch (vext){
+  switch (vext) {
     case AVX512:
     case AVX2:
       _initInterPredictionX86<AVX2>();
@@ -272,15 +253,13 @@ void InterPrediction::initInterPredictionX86()
     default:
       break;
   }
-
 }
-#endif
+#  endif
 
-#if ENABLE_SIMD_OPT_PICTURE
-void Picture::initPictureX86()
-{
+#  if ENABLE_SIMD_OPT_PICTURE
+void Picture::initPictureX86() {
   auto vext = read_x86_extension_flags();
-  switch (vext){
+  switch (vext) {
     case AVX512:
     case AVX2:
       _initPictureX86<AVX2>();
@@ -295,15 +274,13 @@ void Picture::initPictureX86()
     default:
       break;
   }
-
 }
-#endif
+#  endif
 
-#if ENABLE_SIMD_OPT_QUANT
-void Quant::initQuantX86()
-{
+#  if ENABLE_SIMD_OPT_QUANT
+void Quant::initQuantX86() {
   auto vext = read_x86_extension_flags();
-  switch (vext){
+  switch (vext) {
     case AVX512:
     case AVX2:
       _initQuantX86<AVX2>();
@@ -318,12 +295,8 @@ void Quant::initQuantX86()
     default:
       break;
   }
-
 }
 
-#endif
-
-
+#  endif
 
 #endif
-

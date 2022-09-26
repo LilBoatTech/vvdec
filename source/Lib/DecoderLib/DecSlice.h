@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -52,8 +52,8 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #define __DECSLICE__
 
 #if _MSC_VER > 1000
-#pragma once
-#endif // _MSC_VER > 1000
+#  pragma once
+#endif  // _MSC_VER > 1000
 
 #include "CABACReader.h"
 #include "DecCu.h"
@@ -69,24 +69,22 @@ THE POSSIBILITY OF SUCH DAMAGE.
 // ====================================================================================================================
 
 /// slice decoder class
-class DecSlice
-{
-private:
+class DecSlice {
+ private:
   // access channel
-  std::vector<Ctx> m_entropyCodingSyncContextState;      ///< context storage for state of contexts at the wavefront/WPP/entropy-coding-sync second CTU of tile-row
+  std::vector<Ctx> m_entropyCodingSyncContextState;  ///< context storage for state of contexts at the
+                                                     ///< wavefront/WPP/entropy-coding-sync second CTU of tile-row
 
-public:
-
+ public:
   DecSlice() = default;
   virtual ~DecSlice() = default;
 
-  void  parseSlice        ( Slice* slice, InputBitstream* bitstream, int threadId );
-  
-  void  setContextStateVec( int numDecThreads ) { m_entropyCodingSyncContextState.resize( std::max( 1, numDecThreads ) ); }
-  void  destroy           ()                    { m_entropyCodingSyncContextState.clear(); }
+  void parseSlice(Slice* slice, InputBitstream* bitstream, int threadId);
+
+  void setContextStateVec(int numDecThreads) { m_entropyCodingSyncContextState.resize(std::max(1, numDecThreads)); }
+  void destroy() { m_entropyCodingSyncContextState.clear(); }
 };
 
 //! \}
 
 #endif
-

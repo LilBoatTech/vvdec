@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -66,44 +66,44 @@ typedef const std::list<Picture*> PicListRange;
 #else
 typedef std::tuple<PicList::const_iterator, PicList::const_iterator> PicListRange;
 
-static const PicList::const_iterator begin( const PicListRange & t ) { return std::get<0>( t ); }
-static const PicList::const_iterator end  ( const PicListRange & t ) { return std::get<1>( t ); }
+static const PicList::const_iterator begin(const PicListRange& t) { return std::get<0>(t); }
+static const PicList::const_iterator end(const PicListRange& t) { return std::get<1>(t); }
 #endif
 
-class PicListManager
-{
-private:
-  PicList m_cPicList;   //  Dynamic buffer
-  int     m_parseFrameDelay = -1;
-  int     m_parallelDecInst = 1;
-  int     m_tuneInDelay     = 0;
-  bool    m_firstOutputPic  = true;
+class PicListManager {
+ private:
+  PicList m_cPicList;  //  Dynamic buffer
+  int m_parseFrameDelay = -1;
+  int m_parallelDecInst = 1;
+  int m_tuneInDelay = 0;
+  bool m_firstOutputPic = true;
 
-public:
+ public:
   PicListManager() = default;
   ~PicListManager() { deleteBuffers(); }
 
-  void create( int frameDelay, int decInstances );
-  void restart()
-  {
+  void create(int frameDelay, int decInstances);
+  void restart() {
     m_firstOutputPic = true;
-    m_tuneInDelay    = 0;
+    m_tuneInDelay = 0;
   }
 
-  PicListRange   getPicListRange( const Picture* pic ) const;
+  PicListRange getPicListRange(const Picture* pic) const;
   const Picture* getFrontPic() const { return m_cPicList.empty() ? nullptr : m_cPicList.front(); }
-  const Picture* getBackPic() const  { return m_cPicList.empty() ? nullptr : m_cPicList.back(); }
+  const Picture* getBackPic() const { return m_cPicList.empty() ? nullptr : m_cPicList.back(); }
 #if JVET_Q0814_DPB
-  Picture*       getNewPicBuffer( const SPS& sps,const PPS& pps, const uint32_t temporalLayer, const int layerId, const VPS* vps );
+  Picture* getNewPicBuffer(const SPS& sps, const PPS& pps, const uint32_t temporalLayer, const int layerId,
+                           const VPS* vps);
 #else
-  Picture*       getNewPicBuffer( const SPS& sps,const PPS& pps, const uint32_t temporalLayer, const int layerId );
+  Picture* getNewPicBuffer(const SPS& sps, const PPS& pps, const uint32_t temporalLayer, const int layerId);
 #endif
-  void           deleteBuffers();
-  void           applyReferencePictureListBasedMarking( const Picture * currPic, const ReferencePictureList * rpl0, const ReferencePictureList * rpl1 );
-  void           applyDoneReferencePictureMarking();
-  Picture*       findClosestPic( int iLostPoc );
-  Picture*       getNextOutputPic( uint32_t numReorderPicsHighestTid, uint32_t maxDecPicBufferingHighestTid, bool bFlush );
-  void           releasePicture( Picture* pic );
+  void deleteBuffers();
+  void applyReferencePictureListBasedMarking(const Picture* currPic, const ReferencePictureList* rpl0,
+                                             const ReferencePictureList* rpl1);
+  void applyDoneReferencePictureMarking();
+  Picture* findClosestPic(int iLostPoc);
+  Picture* getNextOutputPic(uint32_t numReorderPicsHighestTid, uint32_t maxDecPicBufferingHighestTid, bool bFlush);
+  void releasePicture(Picture* pic);
 };
 
-#endif   // PICLISTMANAGER_H
+#endif  // PICLISTMANAGER_H

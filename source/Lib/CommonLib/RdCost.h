@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -68,39 +68,34 @@ class EncCfg;
 // ====================================================================================================================
 
 // for function pointer
-typedef Distortion (*FpDistFunc) (const DistParam&);
+typedef Distortion (*FpDistFunc)(const DistParam&);
 
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
 
 /// distortion parameter class
-class DistParam
-{
-public:
-  CPelBuf               org;
-  CPelBuf               cur;
-  FpDistFunc            distFunc;
-  int                   bitDepth;
+class DistParam {
+ public:
+  CPelBuf org;
+  CPelBuf cur;
+  FpDistFunc distFunc;
+  int bitDepth;
 
   // (vertical) subsampling shift (for reducing complexity)
   // - 0 = no subsampling, 1 = even rows, 2 = every 4th, etc.
-  int                   subShift;
-  DistParam() :
-  org(), cur(), bitDepth( 0 ), subShift( 0 )
-  { }
+  int subShift;
+  DistParam() : org(), cur(), bitDepth(0), subShift(0) {}
 };
 
 /// RD cost computation class
-class RdCost
-{
-private:
+class RdCost {
+ private:
   // for distortion
 
-  static FpDistFunc m_afpDistortFunc[DF_TOTAL_FUNCTIONS]; // [eDFunc]
+  static FpDistFunc m_afpDistortFunc[DF_TOTAL_FUNCTIONS];  // [eDFunc]
 
-public:
-
+ public:
   RdCost();
   ~RdCost();
 
@@ -110,26 +105,26 @@ public:
   void _initRdCostX86();
 #endif
 
-  static void setDistParam( DistParam &rcDP, const Pel* pOrg, const Pel* piRefY, ptrdiff_t iOrgStride, ptrdiff_t iRefStride, int bitDepth, int width, int height, int subShiftMode = 0 );
+  static void setDistParam(DistParam& rcDP, const Pel* pOrg, const Pel* piRefY, ptrdiff_t iOrgStride,
+                           ptrdiff_t iRefStride, int bitDepth, int width, int height, int subShiftMode = 0);
 
-private:
-
-  static Distortion xGetSAD           ( const DistParam& pcDtParam );
-  static Distortion xGetSAD4          ( const DistParam& pcDtParam );
-  static Distortion xGetSAD8          ( const DistParam& pcDtParam );
-  static Distortion xGetSAD16         ( const DistParam& pcDtParam );
-  static Distortion xGetSAD32         ( const DistParam& pcDtParam );
-  static Distortion xGetSAD64         ( const DistParam& pcDtParam );
-  static Distortion xGetSAD16N        ( const DistParam& pcDtParam );
+ private:
+  static Distortion xGetSAD(const DistParam& pcDtParam);
+  static Distortion xGetSAD4(const DistParam& pcDtParam);
+  static Distortion xGetSAD8(const DistParam& pcDtParam);
+  static Distortion xGetSAD16(const DistParam& pcDtParam);
+  static Distortion xGetSAD32(const DistParam& pcDtParam);
+  static Distortion xGetSAD64(const DistParam& pcDtParam);
+  static Distortion xGetSAD16N(const DistParam& pcDtParam);
 
 #ifdef TARGET_SIMD_X86
-  template< X86_VEXT vext >
-  static Distortion xGetSAD_16xN_SIMD ( const DistParam& pcDtParam );
-  template< int iWidth, X86_VEXT vext >
-  static Distortion xGetSAD_NxN_SIMD  ( const DistParam& pcDtParam );
+  template <X86_VEXT vext>
+  static Distortion xGetSAD_16xN_SIMD(const DistParam& pcDtParam);
+  template <int iWidth, X86_VEXT vext>
+  static Distortion xGetSAD_NxN_SIMD(const DistParam& pcDtParam);
 #endif
-};// END CLASS DEFINITION RdCost
+};  // END CLASS DEFINITION RdCost
 
 //! \}
 
-#endif // __RDCOST__
+#endif  // __RDCOST__

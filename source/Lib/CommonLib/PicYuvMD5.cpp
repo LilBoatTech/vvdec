@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -55,18 +55,15 @@ THE POSSIBILITY OF SUCH DAMAGE.
  * Update md5 using n samples from plane, each sample is adjusted to
  * OUTBIT_BITDEPTH_DIV8.
  */
-template<uint32_t OUTPUT_BITDEPTH_DIV8>
-static void md5_block( libmd5::MD5& md5, const Pel* plane, uint32_t n)
-{
+template <uint32_t OUTPUT_BITDEPTH_DIV8>
+static void md5_block(libmd5::MD5& md5, const Pel* plane, uint32_t n) {
   /* create a 64 byte buffer for packing Pel's into */
-  uint8_t buf[64/OUTPUT_BITDEPTH_DIV8][OUTPUT_BITDEPTH_DIV8];
-  for (uint32_t i = 0; i < n; i++)
-  {
+  uint8_t buf[64 / OUTPUT_BITDEPTH_DIV8][OUTPUT_BITDEPTH_DIV8];
+  for (uint32_t i = 0; i < n; i++) {
     Pel pel = plane[i];
     /* perform bitdepth and endian conversion */
-    for (uint32_t d = 0; d < OUTPUT_BITDEPTH_DIV8; d++)
-    {
-      buf[i][d] = pel >> (d*8);
+    for (uint32_t d = 0; d < OUTPUT_BITDEPTH_DIV8; d++) {
+      buf[i][d] = pel >> (d * 8);
     }
   }
   md5.update((uint8_t*)buf, n * OUTPUT_BITDEPTH_DIV8);
@@ -76,118 +73,103 @@ static void md5_block( libmd5::MD5& md5, const Pel* plane, uint32_t n)
  * Update md5 with all samples in plane in raster order, each sample
  * is adjusted to OUTBIT_BITDEPTH_DIV8.
  */
-template<uint32_t OUTPUT_BITDEPTH_DIV8>
-static void md5_plane( libmd5::MD5& md5, const Pel* plane, uint32_t width, uint32_t height, ptrdiff_t stride)
-{
+template <uint32_t OUTPUT_BITDEPTH_DIV8>
+static void md5_plane(libmd5::MD5& md5, const Pel* plane, uint32_t width, uint32_t height, ptrdiff_t stride) {
   /* N is the number of samples to process per md5 update.
    * All N samples must fit in buf */
   uint32_t N = 32;
   uint32_t width_modN = width % N;
   uint32_t width_less_modN = width - width_modN;
 
-  for (uint32_t y = 0; y < height; y++)
-  {
+  for (uint32_t y = 0; y < height; y++) {
     /* convert pels into unsigned chars in little endian byte order.
      * NB, for 8bit data, data is truncated to 8bits. */
-    for (uint32_t x = 0; x < width_less_modN; x += N)
-    {
-      md5_block<OUTPUT_BITDEPTH_DIV8>(md5, &plane[y*stride + x], N);
+    for (uint32_t x = 0; x < width_less_modN; x += N) {
+      md5_block<OUTPUT_BITDEPTH_DIV8>(md5, &plane[y * stride + x], N);
     }
 
     /* mop up any of the remaining line */
-    md5_block<OUTPUT_BITDEPTH_DIV8>(md5, &plane[y*stride + width_less_modN], width_modN);
+    md5_block<OUTPUT_BITDEPTH_DIV8>(md5, &plane[y * stride + width_less_modN], width_modN);
   }
 }
 
-
-uint32_t compCRC(int bitdepth, const Pel* plane, uint32_t width, uint32_t height, ptrdiff_t stride, PictureHash &digest)
-{
+uint32_t compCRC(int bitdepth, const Pel* plane, uint32_t width, uint32_t height, ptrdiff_t stride,
+                 PictureHash& digest) {
   uint32_t crcMsb;
   uint32_t bitVal;
   uint32_t crcVal = 0xffff;
   uint32_t bitIdx;
-  for (uint32_t y = 0; y < height; y++)
-  {
-    for (uint32_t x = 0; x < width; x++)
-    {
+  for (uint32_t y = 0; y < height; y++) {
+    for (uint32_t x = 0; x < width; x++) {
       // take CRC of first pictureData byte
-      for(bitIdx=0; bitIdx<8; bitIdx++)
-      {
+      for (bitIdx = 0; bitIdx < 8; bitIdx++) {
         crcMsb = (crcVal >> 15) & 1;
-        bitVal = (plane[y*stride+x] >> (7 - bitIdx)) & 1;
+        bitVal = (plane[y * stride + x] >> (7 - bitIdx)) & 1;
         crcVal = (((crcVal << 1) + bitVal) & 0xffff) ^ (crcMsb * 0x1021);
       }
       // take CRC of second pictureData byte if bit depth is greater than 8-bits
-      if(bitdepth > 8)
-      {
-        for(bitIdx=0; bitIdx<8; bitIdx++)
-        {
+      if (bitdepth > 8) {
+        for (bitIdx = 0; bitIdx < 8; bitIdx++) {
           crcMsb = (crcVal >> 15) & 1;
-          bitVal = (plane[y*stride+x] >> (15 - bitIdx)) & 1;
+          bitVal = (plane[y * stride + x] >> (15 - bitIdx)) & 1;
           crcVal = (((crcVal << 1) + bitVal) & 0xffff) ^ (crcMsb * 0x1021);
         }
       }
     }
   }
-  for(bitIdx=0; bitIdx<16; bitIdx++)
-  {
+  for (bitIdx = 0; bitIdx < 16; bitIdx++) {
     crcMsb = (crcVal >> 15) & 1;
     crcVal = ((crcVal << 1) & 0xffff) ^ (crcMsb * 0x1021);
   }
 
-  digest.hash.push_back((crcVal>>8)  & 0xff);
-  digest.hash.push_back( crcVal      & 0xff);
+  digest.hash.push_back((crcVal >> 8) & 0xff);
+  digest.hash.push_back(crcVal & 0xff);
   return 2;
 }
 
-uint32_t calcCRC(const CPelUnitBuf& pic, PictureHash &digest, const BitDepths &bitDepths)
-{
-  uint32_t digestLen=0;
+uint32_t calcCRC(const CPelUnitBuf& pic, PictureHash& digest, const BitDepths& bitDepths) {
+  uint32_t digestLen = 0;
   digest.hash.clear();
-  for (uint32_t chan = 0; chan< (uint32_t)pic.bufs.size(); chan++)
-  {
+  for (uint32_t chan = 0; chan < (uint32_t)pic.bufs.size(); chan++) {
     const ComponentID compID = ComponentID(chan);
     const CPelBuf area = pic.get(compID);
-    digestLen = compCRC(bitDepths.recon[toChannelType(compID)], area.bufAt(0, 0), area.width, area.height, area.stride, digest );
+    digestLen =
+        compCRC(bitDepths.recon[toChannelType(compID)], area.bufAt(0, 0), area.width, area.height, area.stride, digest);
   }
   return digestLen;
 }
 
-uint32_t compChecksum(int bitdepth, const Pel* plane, uint32_t width, uint32_t height, ptrdiff_t stride, PictureHash &digest, const BitDepths &/*bitDepths*/)
-{
+uint32_t compChecksum(int bitdepth, const Pel* plane, uint32_t width, uint32_t height, ptrdiff_t stride,
+                      PictureHash& digest, const BitDepths& /*bitDepths*/) {
   uint32_t checksum = 0;
   uint8_t xor_mask;
 
-  for (uint32_t y = 0; y < height; y++)
-  {
-    for (uint32_t x = 0; x < width; x++)
-    {
+  for (uint32_t y = 0; y < height; y++) {
+    for (uint32_t x = 0; x < width; x++) {
       xor_mask = (x & 0xff) ^ (y & 0xff) ^ (x >> 8) ^ (y >> 8);
-      checksum = (checksum + ((plane[y*stride+x] & 0xff) ^ xor_mask)) & 0xffffffff;
+      checksum = (checksum + ((plane[y * stride + x] & 0xff) ^ xor_mask)) & 0xffffffff;
 
-      if(bitdepth > 8)
-      {
-        checksum = (checksum + ((plane[y*stride+x]>>8) ^ xor_mask)) & 0xffffffff;
+      if (bitdepth > 8) {
+        checksum = (checksum + ((plane[y * stride + x] >> 8) ^ xor_mask)) & 0xffffffff;
       }
     }
   }
 
-  digest.hash.push_back((checksum>>24) & 0xff);
-  digest.hash.push_back((checksum>>16) & 0xff);
-  digest.hash.push_back((checksum>>8)  & 0xff);
-  digest.hash.push_back( checksum      & 0xff);
+  digest.hash.push_back((checksum >> 24) & 0xff);
+  digest.hash.push_back((checksum >> 16) & 0xff);
+  digest.hash.push_back((checksum >> 8) & 0xff);
+  digest.hash.push_back(checksum & 0xff);
   return 4;
 }
 
-uint32_t calcChecksum(const CPelUnitBuf& pic, PictureHash &digest, const BitDepths &bitDepths)
-{
-  uint32_t digestLen=0;
+uint32_t calcChecksum(const CPelUnitBuf& pic, PictureHash& digest, const BitDepths& bitDepths) {
+  uint32_t digestLen = 0;
   digest.hash.clear();
-  for(uint32_t chan=0; chan< (uint32_t)pic.bufs.size(); chan++)
-  {
-    const ComponentID compID=ComponentID(chan);
+  for (uint32_t chan = 0; chan < (uint32_t)pic.bufs.size(); chan++) {
+    const ComponentID compID = ComponentID(chan);
     const CPelBuf area = pic.get(compID);
-    digestLen=compChecksum(bitDepths.recon[toChannelType(compID)], area.bufAt(0,0), area.width, area.height, area.stride, digest, bitDepths);
+    digestLen = compChecksum(bitDepths.recon[toChannelType(compID)], area.bufAt(0, 0), area.width, area.height,
+                             area.stride, digest, bitDepths);
   }
   return digestLen;
 }
@@ -198,43 +180,38 @@ uint32_t calcChecksum(const CPelUnitBuf& pic, PictureHash &digest, const BitDept
  * using sufficient bytes to represent the picture bitdepth.  Eg, 10bit data
  * uses little-endian two byte words; 8bit data uses single byte words.
  */
-uint32_t calcMD5(const CPelUnitBuf& pic, PictureHash &digest, const BitDepths &bitDepths)
-{
+uint32_t calcMD5(const CPelUnitBuf& pic, PictureHash& digest, const BitDepths& bitDepths) {
   /* choose an md5_plane packing function based on the system bitdepth */
-  typedef void (*MD5PlaneFunc)(libmd5::MD5&, const Pel*, uint32_t, uint32_t, ptrdiff_t );
+  typedef void (*MD5PlaneFunc)(libmd5::MD5&, const Pel*, uint32_t, uint32_t, ptrdiff_t);
   MD5PlaneFunc md5_plane_func;
 
   libmd5::MD5 md5[MAX_NUM_COMPONENT];
 
   digest.hash.clear();
 
-  for (uint32_t chan = 0; chan< (uint32_t)pic.bufs.size(); chan++)
-  {
-    const ComponentID compID=ComponentID(chan);
+  for (uint32_t chan = 0; chan < (uint32_t)pic.bufs.size(); chan++) {
+    const ComponentID compID = ComponentID(chan);
     const CPelBuf area = pic.get(compID);
-    md5_plane_func = bitDepths.recon[toChannelType(compID)] <= 8 ? (MD5PlaneFunc)md5_plane<1> : (MD5PlaneFunc)md5_plane<2>;
+    md5_plane_func =
+        bitDepths.recon[toChannelType(compID)] <= 8 ? (MD5PlaneFunc)md5_plane<1> : (MD5PlaneFunc)md5_plane<2>;
     uint8_t tmp_digest[MD5_DIGEST_STRING_LENGTH];
-    md5_plane_func(md5[compID], area.bufAt(0, 0), area.width, area.height, area.stride );
+    md5_plane_func(md5[compID], area.bufAt(0, 0), area.width, area.height, area.stride);
     md5[compID].finalize(tmp_digest);
-    for(uint32_t i=0; i<MD5_DIGEST_STRING_LENGTH; i++)
-    {
+    for (uint32_t i = 0; i < MD5_DIGEST_STRING_LENGTH; i++) {
       digest.hash.push_back(tmp_digest[i]);
     }
   }
   return 16;
 }
 
-std::string hashToString(const PictureHash &digest, int numChar)
-{
+std::string hashToString(const PictureHash& digest, int numChar) {
   static const char* hex = "0123456789abcdef";
   std::string result;
 
-  CHECK(numChar<=0, "numChar needs to be >0");
+  CHECK(numChar <= 0, "numChar needs to be >0");
 
-  for(int pos=0; pos<int(digest.hash.size()); pos++)
-  {
-    if ((pos % numChar) == 0 && pos!=0 )
-    {
+  for (int pos = 0; pos < int(digest.hash.size()); pos++) {
+    if ((pos % numChar) == 0 && pos != 0) {
       result += ',';
     }
     result += hex[digest.hash[pos] >> 4];
@@ -244,40 +221,34 @@ std::string hashToString(const PictureHash &digest, int numChar)
   return result;
 }
 
-int calcAndPrintHashStatus(const CPelUnitBuf& pic, const SEIDecodedPictureHash* pictureHashSEI, const BitDepths &bitDepths, const MsgLevel msgl)
-{
+int calcAndPrintHashStatus(const CPelUnitBuf& pic, const SEIDecodedPictureHash* pictureHashSEI,
+                           const BitDepths& bitDepths, const MsgLevel msgl) {
   /* calculate MD5sum for entire reconstructed picture */
   PictureHash recon_digest;
-  int numChar=0;
+  int numChar = 0;
   const char* hashType = "\0";
 
-  if (pictureHashSEI)
-  {
-    switch (pictureHashSEI->method)
-    {
-      case HASHTYPE_MD5:
-        {
-          hashType = "MD5";
-          numChar = calcMD5(pic, recon_digest, bitDepths);
-          break;
-        }
-      case HASHTYPE_CRC:
-        {
-          hashType = "CRC";
-          numChar = calcCRC(pic, recon_digest, bitDepths);
-          break;
-        }
-      case HASHTYPE_CHECKSUM:
-        {
-          hashType = "Checksum";
-          numChar = calcChecksum(pic, recon_digest, bitDepths);
-          break;
-        }
-      default:
-        {
-          THROW("Unknown hash type");
-          break;
-        }
+  if (pictureHashSEI) {
+    switch (pictureHashSEI->method) {
+      case HASHTYPE_MD5: {
+        hashType = "MD5";
+        numChar = calcMD5(pic, recon_digest, bitDepths);
+        break;
+      }
+      case HASHTYPE_CRC: {
+        hashType = "CRC";
+        numChar = calcCRC(pic, recon_digest, bitDepths);
+        break;
+      }
+      case HASHTYPE_CHECKSUM: {
+        hashType = "Checksum";
+        numChar = calcChecksum(pic, recon_digest, bitDepths);
+        break;
+      }
+      default: {
+        THROW("Unknown hash type");
+        break;
+      }
     }
   }
 
@@ -285,21 +256,18 @@ int calcAndPrintHashStatus(const CPelUnitBuf& pic, const SEIDecodedPictureHash* 
   const char* ok = "(unk)";
   bool mismatch = false;
 
-  if (pictureHashSEI)
-  {
+  if (pictureHashSEI) {
     ok = "(OK)";
-    if (recon_digest != pictureHashSEI->m_pictureHash)
-    {
+    if (recon_digest != pictureHashSEI->m_pictureHash) {
       ok = "(***ERROR***)";
       mismatch = true;
     }
   }
 
-  msg( msgl, "[%s:%s,%s] ", hashType, hashToString(recon_digest, numChar).c_str(), ok);
+  msg(msgl, "[%s:%s,%s] ", hashType, hashToString(recon_digest, numChar).c_str(), ok);
 
-  if (mismatch)
-  {
-    msg( msgl, "[rx%s:%s] ", hashType, hashToString(pictureHashSEI->m_pictureHash, numChar).c_str());
+  if (mismatch) {
+    msg(msgl, "[rx%s:%s] ", hashType, hashToString(pictureHashSEI->m_pictureHash, numChar).c_str());
   }
   return mismatch;
 }

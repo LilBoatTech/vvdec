@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -52,20 +52,19 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #ifndef __ANNEXBREAD__
-#define __ANNEXBREAD__
+#  define __ANNEXBREAD__
 
-#include <stdint.h>
-#include <istream>
-#include <vector>
+#  include <stdint.h>
+#  include <istream>
+#  include <vector>
 
-#include "CommonLib/CommonDef.h"
+#  include "CommonLib/CommonDef.h"
 
 //! \ingroup DecoderLib
 //! \{
 
-class InputByteStream
-{
-public:
+class InputByteStream {
+ public:
   /**
    * Create a bytestream reader that will extract bytes from
    * istream.
@@ -75,11 +74,7 @@ public:
    *
    * Side-effects: the exception mask of istream is set to eofbit
    */
-  InputByteStream(std::istream& istream)
-  : m_NumFutureBytes(0)
-  , m_FutureBytes(0)
-  , m_Input(istream)
-  {
+  InputByteStream(std::istream& istream) : m_NumFutureBytes(0), m_FutureBytes(0), m_Input(istream) {
     istream.exceptions(std::istream::eofbit | std::istream::badbit);
   }
 
@@ -87,8 +82,7 @@ public:
    * Reset the internal state.  Must be called if input stream is
    * modified externally to this class
    */
-  void reset()
-  {
+  void reset() {
     m_NumFutureBytes = 0;
     m_FutureBytes = 0;
   }
@@ -97,25 +91,19 @@ public:
    * returns true if an EOF will be encountered within the next
    * n bytes.
    */
-  bool eofBeforeNBytes(uint32_t n)
-  {
+  bool eofBeforeNBytes(uint32_t n) {
     CHECK(n > 4, "Unsupported look-ahead value");
-    if (m_NumFutureBytes >= n)
-    {
+    if (m_NumFutureBytes >= n) {
       return false;
     }
 
     n -= m_NumFutureBytes;
-    try
-    {
-      for (uint32_t i = 0; i < n; i++)
-      {
+    try {
+      for (uint32_t i = 0; i < n; i++) {
         m_FutureBytes = (m_FutureBytes << 8) | m_Input.get();
         m_NumFutureBytes++;
       }
-    }
-    catch (...)
-    {
+    } catch (...) {
       return true;
     }
     return false;
@@ -133,10 +121,9 @@ public:
    * is undefined.
    *
    */
-  uint32_t peekBytes(uint32_t n)
-  {
+  uint32_t peekBytes(uint32_t n) {
     eofBeforeNBytes(n);
-    return m_FutureBytes >> 8*(m_NumFutureBytes - n);
+    return m_FutureBytes >> 8 * (m_NumFutureBytes - n);
   }
 
   /**
@@ -145,16 +132,14 @@ public:
    * If bytestream is already at EOF prior to a call to readByte(),
    * an exception std::ios_base::failure is thrown.
    */
-  uint8_t readByte()
-  {
-    if (!m_NumFutureBytes)
-    {
+  uint8_t readByte() {
+    if (!m_NumFutureBytes) {
       uint8_t byte = m_Input.get();
       return byte;
     }
     m_NumFutureBytes--;
-    uint8_t wanted_byte = m_FutureBytes >> 8*m_NumFutureBytes;
-    m_FutureBytes &= ~(0xff << 8*m_NumFutureBytes);
+    uint8_t wanted_byte = m_FutureBytes >> 8 * m_NumFutureBytes;
+    m_FutureBytes &= ~(0xff << 8 * m_NumFutureBytes);
     return wanted_byte;
   }
 
@@ -163,36 +148,31 @@ public:
    * bytestream are interpreted as bigendian when assembling
    * the return value.
    */
-  uint32_t readBytes(uint32_t n)
-  {
+  uint32_t readBytes(uint32_t n) {
     uint32_t val = 0;
-    for (uint32_t i = 0; i < n; i++)
-    {
+    for (uint32_t i = 0; i < n; i++) {
       val = (val << 8) | readByte();
     }
     return val;
   }
 
-
-private:
+ private:
   uint32_t m_NumFutureBytes; /* number of valid bytes in m_FutureBytes */
-  uint32_t m_FutureBytes; /* bytes that have been peeked */
-  std::istream& m_Input; /* Input stream to read from */
+  uint32_t m_FutureBytes;    /* bytes that have been peeked */
+  std::istream& m_Input;     /* Input stream to read from */
 };
 
 /**
  * Statistics associated with AnnexB bytestreams
  */
-struct AnnexBStats
-{
-  uint32_t m_numLeadingZero8BitsBytes  = 0;
-  uint32_t m_numZeroByteBytes          = 0;
-  uint32_t m_numStartCodePrefixBytes   = 0;
-  uint32_t m_numBytesInNALUnit         = 0;
+struct AnnexBStats {
+  uint32_t m_numLeadingZero8BitsBytes = 0;
+  uint32_t m_numZeroByteBytes = 0;
+  uint32_t m_numStartCodePrefixBytes = 0;
+  uint32_t m_numBytesInNALUnit = 0;
   uint32_t m_numTrailingZero8BitsBytes = 0;
 
-  AnnexBStats& operator+=(const AnnexBStats& rhs)
-  {
+  AnnexBStats& operator+=(const AnnexBStats& rhs) {
     this->m_numLeadingZero8BitsBytes += rhs.m_numLeadingZero8BitsBytes;
     this->m_numZeroByteBytes += rhs.m_numZeroByteBytes;
     this->m_numStartCodePrefixBytes += rhs.m_numStartCodePrefixBytes;

@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -52,11 +52,11 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #ifndef __NALREAD__
-#define __NALREAD__
+#  define __NALREAD__
 
-#include "CommonLib/CommonDef.h"
-#include "CommonLib/BitStream.h"
-#include "CommonLib/NAL.h"
+#  include "CommonLib/CommonDef.h"
+#  include "CommonLib/BitStream.h"
+#  include "CommonLib/NAL.h"
 
 //! \ingroup DecoderLib
 //! \{
@@ -65,26 +65,24 @@ THE POSSIBILITY OF SUCH DAMAGE.
  * A convenience wrapper to NALUnit that also provides a
  * bitstream object.
  */
-class InputNALUnit : public NALUnit
-{
-  private:
-    InputBitstream m_Bitstream;
+class InputNALUnit : public NALUnit {
+ private:
+  InputBitstream m_Bitstream;
 
-  public:
-    InputNALUnit( const InputNALUnit & src ) : NALUnit( src ), m_Bitstream( src.m_Bitstream ){};
-    InputNALUnit()  = default;
-    ~InputNALUnit() = default;
+ public:
+  InputNALUnit(const InputNALUnit& src) : NALUnit(src), m_Bitstream(src.m_Bitstream){};
+  InputNALUnit() = default;
+  ~InputNALUnit() = default;
 
-    const InputBitstream & getBitstream() const { return m_Bitstream; }
-          InputBitstream & getBitstream()       { return m_Bitstream; }
+  const InputBitstream& getBitstream() const { return m_Bitstream; }
+  InputBitstream& getBitstream() { return m_Bitstream; }
 
-    bool empty() { return m_Bitstream.getFifo().empty(); }
+  bool empty() { return m_Bitstream.getFifo().empty(); }
 
-    void read();
-    void readNalUnitHeader();
-    bool checkPictureHeaderInSliceHeaderFlag(InputNALUnit & nalu);
+  void read();
+  void readNalUnitHeader();
+  bool checkPictureHeaderInSliceHeaderFlag(InputNALUnit& nalu);
 };
-
 
 //! \}
 

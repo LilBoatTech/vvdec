@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -49,7 +49,6 @@ THE POSSIBILITY OF SUCH DAMAGE.
  \brief    reading functions for Annex B byte streams
  */
 
-
 #include <stdint.h>
 #include <vector>
 #include "AnnexBread.h"
@@ -57,9 +56,9 @@ THE POSSIBILITY OF SUCH DAMAGE.
 using namespace std;
 
 #ifdef TRACE_ENABLE_ITT
-static __itt_domain*        itt_domain_input       = __itt_domain_create( "I/O" );
-static __itt_string_handle* itt_handle_extractNALU = __itt_string_handle_create( "Extract_NALU" );
-#endif   // TRACE_ENABLE_ITT
+static __itt_domain* itt_domain_input = __itt_domain_create("I/O");
+static __itt_string_handle* itt_handle_extractNALU = __itt_string_handle_create("Extract_NALU");
+#endif  // TRACE_ENABLE_ITT
 
 //! \ingroup DecoderLib
 //! \{
@@ -72,12 +71,7 @@ static __itt_string_handle* itt_handle_extractNALU = __itt_string_handle_create(
  * of std::ios_base::failure is thrown.  The contsnts of stats will
  * be correct at this point.
  */
-static void
-_byteStreamNALUnit(
-  InputByteStream& bs,
-  vector<uint8_t>& nalUnit,
-  AnnexBStats& stats)
-{
+static void _byteStreamNALUnit(InputByteStream& bs, vector<uint8_t>& nalUnit, AnnexBStats& stats) {
   /* At the beginning of the decoding process, the decoder initialises its
    * current position in the byte stream to the beginning of the byte stream.
    * It then extracts and discards each leading_zero_8bits syntax element (if
@@ -86,11 +80,12 @@ _byteStreamNALUnit(
    * that the next four bytes in the bitstream form the four-byte sequence
    * 0x00000001.
    */
-  while ((bs.eofBeforeNBytes(24/8) || bs.peekBytes(24/8) != 0x000001)
-  &&     (bs.eofBeforeNBytes(32/8) || bs.peekBytes(32/8) != 0x00000001))
-  {
+  while ((bs.eofBeforeNBytes(24 / 8) || bs.peekBytes(24 / 8) != 0x000001) &&
+         (bs.eofBeforeNBytes(32 / 8) || bs.peekBytes(32 / 8) != 0x00000001)) {
     uint8_t leading_zero_8bits = bs.readByte();
-    if(leading_zero_8bits != 0) { THROW( "Leading zero bits not zero" ); }
+    if (leading_zero_8bits != 0) {
+      THROW("Leading zero bits not zero");
+    }
     stats.m_numLeadingZero8BitsBytes++;
   }
 
@@ -102,10 +97,9 @@ _byteStreamNALUnit(
    */
   /* NB, the previous step guarantees this will succeed -- if EOF was
    * encountered, an exception will stop execution getting this far */
-  if (bs.peekBytes(24/8) != 0x000001)
-  {
+  if (bs.peekBytes(24 / 8) != 0x000001) {
     uint8_t zero_byte = bs.readByte();
-    CHECK( zero_byte != 0, "Zero byte not '0'" );
+    CHECK(zero_byte != 0, "Zero byte not '0'");
     stats.m_numZeroByteBytes++;
   }
 
@@ -115,8 +109,10 @@ _byteStreamNALUnit(
    * following this three-byte sequence.
    */
   /* NB, (1) guarantees that the next three bytes are 0x00 00 01 */
-  uint32_t start_code_prefix_one_3bytes = bs.readBytes(24/8);
-  if(start_code_prefix_one_3bytes != 0x000001) { THROW( "Invalid code prefix" );}
+  uint32_t start_code_prefix_one_3bytes = bs.readBytes(24 / 8);
+  if (start_code_prefix_one_3bytes != 0x000001) {
+    THROW("Invalid code prefix");
+  }
   stats.m_numStartCodePrefixBytes += 3;
 
   /* 3. NumBytesInNALunit is set equal to the number of bytes starting with
@@ -133,8 +129,7 @@ _byteStreamNALUnit(
    * decoded using the NAL unit decoding process
    */
   /* NB, (unsigned)x > 2 implies n!=0 && n!=1 */
-  while (bs.eofBeforeNBytes(24/8) || bs.peekBytes(24/8) > 2)
-  {
+  while (bs.eofBeforeNBytes(24 / 8) || bs.peekBytes(24 / 8) > 2) {
     nalUnit.push_back(bs.readByte());
   }
 
@@ -153,11 +148,10 @@ _byteStreamNALUnit(
    *    unspecified means).
    */
   /* NB, (3) guarantees there are at least three bytes available or none */
-  while ((bs.eofBeforeNBytes(24/8) || bs.peekBytes(24/8) != 0x000001)
-  &&     (bs.eofBeforeNBytes(32/8) || bs.peekBytes(32/8) != 0x00000001))
-  {
+  while ((bs.eofBeforeNBytes(24 / 8) || bs.peekBytes(24 / 8) != 0x000001) &&
+         (bs.eofBeforeNBytes(32 / 8) || bs.peekBytes(32 / 8) != 0x00000001)) {
     uint8_t trailing_zero_8bits = bs.readByte();
-    CHECK( trailing_zero_8bits != 0, "Trailing zero bits not '0'" );
+    CHECK(trailing_zero_8bits != 0, "Trailing zero bits not '0'");
     stats.m_numTrailingZero8BitsBytes++;
   }
 }
@@ -169,20 +163,12 @@ _byteStreamNALUnit(
  * Returns false if EOF was reached (NB, nalunit data may be valid),
  *         otherwise true.
  */
-bool
-byteStreamNALUnit(
-  InputByteStream& bs,
-  vector<uint8_t>& nalUnit,
-  AnnexBStats& stats)
-{
+bool byteStreamNALUnit(InputByteStream& bs, vector<uint8_t>& nalUnit, AnnexBStats& stats) {
   ITT_TASKSTART(itt_domain_input, itt_handle_extractNALU);
   bool eof = false;
-  try
-  {
+  try {
     _byteStreamNALUnit(bs, nalUnit, stats);
-  }
-  catch (...)
-  {
+  } catch (...) {
     eof = true;
   }
   stats.m_numBytesInNALUnit = uint32_t(nalUnit.size());

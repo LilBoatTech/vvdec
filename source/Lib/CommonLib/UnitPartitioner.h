@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -65,9 +65,8 @@ typedef std::vector<UnitArea> Partitioning;
 // being processed (in m_partStack).
 //////////////////////////////////////////////////////////////////////////
 
-enum PartSplit
-{
-  CTU_LEVEL        = 0,
+enum PartSplit {
+  CTU_LEVEL = 0,
   CU_QUAD_SPLIT,
   CU_HORZ_SPLIT,
   CU_VERT_SPLIT,
@@ -86,25 +85,22 @@ enum PartSplit
   SBT_HOR_QUAD_POS0_SPLIT,
   SBT_HOR_QUAD_POS1_SPLIT,
   NUM_PART_SPLIT,
-  CU_DONT_SPLIT           = 2000  ///< dummy element to indicate no splitting
+  CU_DONT_SPLIT = 2000  ///< dummy element to indicate no splitting
 };
 
-
-
-struct PartLevel
-{
-  PartSplit         split;
-  Partitioning      parts;
-  unsigned          idx;
-  const CodingUnit *cuAbove;
-  const CodingUnit *cuLeft;
-  ModeType          modeType;
-  bool              qgEnable;
-  bool              qgChromaEnable;
+struct PartLevel {
+  PartSplit split;
+  Partitioning parts;
+  unsigned idx;
+  const CodingUnit* cuAbove;
+  const CodingUnit* cuLeft;
+  ModeType modeType;
+  bool qgEnable;
+  bool qgChromaEnable;
 
   PartLevel();
-  PartLevel( const PartSplit _split, const Partitioning&  _parts );
-  PartLevel( const PartSplit _split,       Partitioning&& _parts );
+  PartLevel(const PartSplit _split, const Partitioning& _parts);
+  PartLevel(const PartSplit _split, Partitioning&& _parts);
 
   void init();
 };
@@ -112,17 +108,15 @@ struct PartLevel
 // set depending on max QT / BT possibilities
 typedef static_vector<PartLevel, 2 * MAX_CU_DEPTH + 1> PartitioningStack;
 
-class Partitioner
-{
-protected:
+class Partitioner {
+ protected:
   PartitioningStack m_partStack;
 #if _DEBUG
-  UnitArea          m_currArea;
+  UnitArea m_currArea;
 #endif
 
-public:
-
-  bool     isDualITree;
+ public:
+  bool isDualITree;
   unsigned maxBTD;
   unsigned maxBtSize;
   unsigned minBtSize;
@@ -148,39 +142,40 @@ public:
 
   const Slice* slice;
 
-  const PartLevel& currPartLevel          () const { return m_partStack.back(); }
-  const UnitArea&  currArea               () const { return currPartLevel().parts[currPartIdx()]; }
-        unsigned   currPartIdx            () const { return currPartLevel().idx; }
-  const PartitioningStack& getPartStack   () const { return m_partStack; }
-  const bool currQgEnable                 () const { return currPartLevel().qgEnable; }
-  const bool currQgChromaEnable           () const { return currPartLevel().qgChromaEnable; }
+  const PartLevel& currPartLevel() const { return m_partStack.back(); }
+  const UnitArea& currArea() const { return currPartLevel().parts[currPartIdx()]; }
+  unsigned currPartIdx() const { return currPartLevel().idx; }
+  const PartitioningStack& getPartStack() const { return m_partStack; }
+  const bool currQgEnable() const { return currPartLevel().qgEnable; }
+  const bool currQgChromaEnable() const { return currPartLevel().qgChromaEnable; }
 
-  SplitSeries getSplitSeries              () const;
+  SplitSeries getSplitSeries() const;
 
-  void initCtu                            ( const UnitArea& ctuArea, const ChannelType _chType, const CodingStructure& cs, const Slice& slice );
-  void splitCurrArea                      ( const PartSplit split, const CodingStructure &cs );
-  void exitCurrSplit                      ( const CodingStructure& cs );
-  bool nextPart                           ( const CodingStructure &cs, bool autoPop = false );
-  bool hasNextPart                        () const;
-  void setCUData                          ( CodingUnit& cu );
-  void canSplit                           ( const CodingStructure &cs, bool& canNo, bool& canQt, bool& canBh, bool& canBv, bool& canTh, bool& canTv ) const;
-  bool canSplit                           ( const PartSplit split, const CodingStructure &cs, bool isISP = false ) const;
-  bool isSepTree                          ( const CodingStructure &cs ) const;
-  bool isConsInter                        () const { return modeType == MODE_TYPE_INTER; }
-  bool isConsIntra                        () const { return modeType == MODE_TYPE_INTRA; }
-  void updateNeighbors                    ( const CodingStructure& cs );
+  void initCtu(const UnitArea& ctuArea, const ChannelType _chType, const CodingStructure& cs, const Slice& slice);
+  void splitCurrArea(const PartSplit split, const CodingStructure& cs);
+  void exitCurrSplit(const CodingStructure& cs);
+  bool nextPart(const CodingStructure& cs, bool autoPop = false);
+  bool hasNextPart() const;
+  void setCUData(CodingUnit& cu);
+  void canSplit(const CodingStructure& cs, bool& canNo, bool& canQt, bool& canBh, bool& canBv, bool& canTh,
+                bool& canTv) const;
+  bool canSplit(const PartSplit split, const CodingStructure& cs, bool isISP = false) const;
+  bool isSepTree(const CodingStructure& cs) const;
+  bool isConsInter() const { return modeType == MODE_TYPE_INTER; }
+  bool isConsIntra() const { return modeType == MODE_TYPE_INTRA; }
+  void updateNeighbors(const CodingStructure& cs);
 };
 
 //////////////////////////////////////////////////////////////////////////
 // Partitioner namespace - contains methods calculating the actual splits
 //////////////////////////////////////////////////////////////////////////
 
-namespace PartitionerImpl
-{
-  void getCUSubPartitions     ( const UnitArea &area, const CodingStructure &cs, const PartSplit splitType, Partitioning& dst );
-  void getMaxTuTiling         ( const UnitArea &area, const CodingStructure &cs,                            Partitioning& dst );
-  void getTUIntraSubPartitions( const UnitArea &area, const CodingStructure &cs, const bool isDualITree,    const PartSplit splitType, Partitioning &sub, const TreeType treeType );
-  void getSbtTuTiling         ( const UnitArea &area, const CodingStructure &cs, const PartSplit splitType, Partitioning& dst );
-};
+namespace PartitionerImpl {
+void getCUSubPartitions(const UnitArea& area, const CodingStructure& cs, const PartSplit splitType, Partitioning& dst);
+void getMaxTuTiling(const UnitArea& area, const CodingStructure& cs, Partitioning& dst);
+void getTUIntraSubPartitions(const UnitArea& area, const CodingStructure& cs, const bool isDualITree,
+                             const PartSplit splitType, Partitioning& sub, const TreeType treeType);
+void getSbtTuTiling(const UnitArea& area, const CodingStructure& cs, const PartSplit splitType, Partitioning& dst);
+};  // namespace PartitionerImpl
 
 #endif

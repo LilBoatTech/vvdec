@@ -1,11 +1,11 @@
 /* -----------------------------------------------------------------------------
 The copyright in this software is being made available under the BSD
-License, included below. No patent rights, trademark rights and/or 
-other Intellectual Property Rights other than the copyrights concerning 
+License, included below. No patent rights, trademark rights and/or
+other Intellectual Property Rights other than the copyrights concerning
 the Software are granted under this license.
 
-For any license concerning other Intellectual Property rights than the software, 
-especially patent licenses, a separate Agreement needs to be closed. 
+For any license concerning other Intellectual Property rights than the software,
+especially patent licenses, a separate Agreement needs to be closed.
 For more information please contact:
 
 Fraunhofer Heinrich Hertz Institute
@@ -14,7 +14,7 @@ Einsteinufer 37
 www.hhi.fraunhofer.de/vvc
 vvc@hhi.fraunhofer.de
 
-Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V. 
+Copyright (c) 2018-2020, Fraunhofer-Gesellschaft zur Förderung der angewandten Forschung e.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -66,85 +66,88 @@ THE POSSIBILITY OF SUCH DAMAGE.
 // Constants
 // ====================================================================================================================
 
-#define QP_BITS                 15
+#define QP_BITS 15
 
 // ====================================================================================================================
 // Class definition
 // ====================================================================================================================
-struct TrQuantParams
-{
-  int     rightShift;
-  int     qScale;
+struct TrQuantParams {
+  int rightShift;
+  int qScale;
 };
 
 /// QP struct
-class QpParam
-{
-public:
-  short  Qps[2];
+class QpParam {
+ public:
+  short Qps[2];
   int8_t pers[2];
   int8_t rems[2];
 
-private:
-  
-public:
+ private:
+ public:
+  QpParam(const TransformUnit &tu, const ComponentID &compID, const bool allowACTQpoffset = true);
 
-  QpParam(const TransformUnit& tu, const ComponentID &compID, const bool allowACTQpoffset = true);
-  
-  int Qp ( const bool ts ) const { return Qps [ts?1:0]; }
-  int per( const bool ts ) const { return pers[ts?1:0]; }
-  int rem( const bool ts ) const { return rems[ts?1:0]; }
+  int Qp(const bool ts) const { return Qps[ts ? 1 : 0]; }
+  int per(const bool ts) const { return pers[ts ? 1 : 0]; }
+  int rem(const bool ts) const { return rems[ts ? 1 : 0]; }
 
-}; // END STRUCT DEFINITION QpParam
+};  // END STRUCT DEFINITION QpParam
 
 /// transform and quantization class
-class Quant
-{
-public:
-  int* getDequantCoeff           ( uint32_t list, int qp, uint32_t sizeX, uint32_t sizeY ) { return m_dequantCoef          [sizeX][sizeY][list][qp]; };  //!< get DeQuant Coefficent
+class Quant {
+ public:
+  int *getDequantCoeff(uint32_t list, int qp, uint32_t sizeX, uint32_t sizeY) {
+    return m_dequantCoef[sizeX][sizeY][list][qp];
+  };  //!< get DeQuant Coefficent
 
-  void setUseScalingList         ( bool bUseScalingList ) { m_scalingListEnabledFlag = bUseScalingList; };
+  void setUseScalingList(bool bUseScalingList) { m_scalingListEnabledFlag = bUseScalingList; };
 #if JVET_P0365_SCALING_MATRIX_LFNST
-#if JVET_R0380_SCALING_MATRIX_DISABLE_YCC_OR_RGB
-  bool getUseScalingList         ( bool isTransformSkip, const bool lfnstApplied, const bool disableScalingMatrixForLFNSTBlks, const bool disableSMforACT)
-  {
-    return( m_scalingListEnabledFlag && !isTransformSkip && (!lfnstApplied || !disableScalingMatrixForLFNSTBlks) && !disableSMforACT);
+#  if JVET_R0380_SCALING_MATRIX_DISABLE_YCC_OR_RGB
+  bool getUseScalingList(bool isTransformSkip, const bool lfnstApplied, const bool disableScalingMatrixForLFNSTBlks,
+                         const bool disableSMforACT) {
+    return (m_scalingListEnabledFlag && !isTransformSkip && (!lfnstApplied || !disableScalingMatrixForLFNSTBlks) &&
+            !disableSMforACT);
   }
-#else
-  bool getUseScalingList         ( bool isTransformSkip, const bool lfnstApplied, const bool disableScalingMatrixForLFNSTBlks) 
-  { 
-    return( m_scalingListEnabledFlag && !isTransformSkip && (!lfnstApplied || !disableScalingMatrixForLFNSTBlks) );
+#  else
+  bool getUseScalingList(bool isTransformSkip, const bool lfnstApplied, const bool disableScalingMatrixForLFNSTBlks) {
+    return (m_scalingListEnabledFlag && !isTransformSkip && (!lfnstApplied || !disableScalingMatrixForLFNSTBlks));
   }
-#endif
+#  endif
 #else
-  bool getUseScalingList         ( bool isTransformSkip ) { return m_scalingListEnabledFlag && !isTransformSkip; };
+  bool getUseScalingList(bool isTransformSkip) { return m_scalingListEnabledFlag && !isTransformSkip; };
 #endif
-  void setScalingListDec         ( ScalingList &scalingList);
-  void processScalingListDec     ( const int *coeff, int *dequantcoeff, int qpMod6, uint32_t height, uint32_t width, uint32_t ratio, int sizuNum, uint32_t dc);
+  void setScalingListDec(ScalingList &scalingList);
+  void processScalingListDec(const int *coeff, int *dequantcoeff, int qpMod6, uint32_t height, uint32_t width,
+                             uint32_t ratio, int sizuNum, uint32_t dc);
 
   Quant();
   virtual ~Quant();
 
   // initialize class
-  virtual void init( Slice *slice );
-public:
+  virtual void init(Slice *slice);
+
+ public:
   // de-quantization
-  virtual void dequant           ( const TransformUnit &tu, CoeffBuf &dstCoeff, const ComponentID &compID, const QpParam &cQP );
+  virtual void dequant(const TransformUnit &tu, CoeffBuf &dstCoeff, const ComponentID &compID, const QpParam &cQP);
 
-private:
-  void xInitScalingList   ( const Quant* other );
+ private:
+  void xInitScalingList(const Quant *other);
   void xDestroyScalingList();
-  void xSetScalingListDec( const ScalingList &scalingList, uint32_t list, uint32_t size, int qp, uint32_t scalingListId );
-  void xSetRecScalingListDec( const ScalingList &scalingList, uint32_t list, uint32_t sizew, uint32_t sizeh, int qp, uint32_t scalingListId );
-  bool     m_scalingListEnabledFlag;
+  void xSetScalingListDec(const ScalingList &scalingList, uint32_t list, uint32_t size, int qp, uint32_t scalingListId);
+  void xSetRecScalingListDec(const ScalingList &scalingList, uint32_t list, uint32_t sizew, uint32_t sizeh, int qp,
+                             uint32_t scalingListId);
+  bool m_scalingListEnabledFlag;
 
-  int      *m_dequantCoef          [SCALING_LIST_SIZE_NUM][SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM][SCALING_LIST_REM_NUM]; ///< array of dequantization matrix coefficient 4x4
-  int       m_dequantCoefBuf       [580644];
+  int *m_dequantCoef[SCALING_LIST_SIZE_NUM][SCALING_LIST_SIZE_NUM][SCALING_LIST_NUM]
+                    [SCALING_LIST_REM_NUM];  ///< array of dequantization matrix coefficient 4x4
+  int m_dequantCoefBuf[580644];
 
-
-  void ( *DeQuant) (const int maxX,const int restX,const int maxY,const int scale,const TCoeffSig*const piQCoef,const size_t piQCfStride,TCoeff   *const piCoef,const int rightShift,const int inputMaximum,const TCoeff transformMaximum);
-  void ( *DeQuantPCM) (const int maxX,const int restX,const int maxY,const int scale,TCoeff   *const piQCoef,const size_t piQCfStride,TCoeff   *const piCoef,const int rightShift,const int inputMaximum,const TCoeff transformMaximum);
-
+  void (*DeQuant)(const int maxX, const int restX, const int maxY, const int scale, const TCoeffSig *const piQCoef,
+                  const size_t piQCfStride, TCoeff *const piCoef, const int rightShift, const int inputMaximum,
+                  const TCoeff transformMaximum);
+  void (*DeQuantPCM)(const int maxX, const int restX, const int maxY, const int scale, TCoeff *const piQCoef,
+                     const size_t piQCfStride, TCoeff *const piCoef, const int rightShift, const int inputMaximum,
+                     const TCoeff transformMaximum);
 
 #if ENABLE_SIMD_OPT_QUANT
   void initQuantX86();
@@ -153,9 +156,8 @@ private:
 
 #endif
 
-};// END CLASS DEFINITION Quant
-
+};  // END CLASS DEFINITION Quant
 
 //! \}
 
-#endif // __QUANT__
+#endif  // __QUANT__
