@@ -134,11 +134,9 @@ void DecLibRecon::decodeFrame() {
     // Decode a picture
     ITT_TASKSTART(itt_domain_prs, itt_handle_parse);
     // first slice or the previous slice not wrong
-    if (slice->getCtuAddrInSlice(0) == 0) {
-      m_cSliceDecoder.parseSlice(slice, &bitstream, 0, this);
-      const unsigned lastCtuInSlice = slice->getCtuAddrInSlice(slice->getNumCtuInSlice() - 1);
-      bLastSlice = lastCtuInSlice == slice->getPPS()->pcv->sizeInCtus - 1;
-    }
+    m_cSliceDecoder.parseSlice(slice, &bitstream, 0, this);
+    const unsigned lastCtuInSlice = slice->getCtuAddrInSlice(slice->getNumCtuInSlice() - 1);
+    bLastSlice = lastCtuInSlice == slice->getPPS()->pcv->sizeInCtus - 1;
     ITT_TASKEND(itt_domain_prs, itt_handle_parse);
 
     slice->getPic()->stopProcessingTimer();
@@ -153,11 +151,9 @@ void DecLibRecon::decodeFrame() {
       // Decode a picture
       ITT_TASKSTART(itt_domain_prs, itt_handle_parse);
       // first slice or the previous slice not wrong
-      if (slice->getCtuAddrInSlice(0) == 0) {
-        m_cSliceDecoder.parseSlice(slice, &bitstream, 0, nullptr);
-        const unsigned lastCtuInSlice = slice->getCtuAddrInSlice(slice->getNumCtuInSlice() - 1);
-        bLastSlice = lastCtuInSlice == slice->getPPS()->pcv->sizeInCtus - 1;
-      }
+      m_cSliceDecoder.parseSlice(slice, &bitstream, 0, nullptr);
+      const unsigned lastCtuInSlice = slice->getCtuAddrInSlice(slice->getNumCtuInSlice() - 1);
+      bLastSlice = lastCtuInSlice == slice->getPPS()->pcv->sizeInCtus - 1;
       ITT_TASKEND(itt_domain_prs, itt_handle_parse);
 
       slice->getPic()->stopProcessingTimer();
@@ -292,7 +288,7 @@ void DecLibRecon::doWork(int threadId) {
 
             uint32_t bit = 1 << id;
             if (std::atomic_fetch_and(&m_rowDependencyBitmap[w], ~bit) & bit) {
-                int row = w * 32 + id;
+                int row = w * 32 + (int)id;
                 if (row < m_numRowCTUs)
                   processRowRecon(row, threadId);
                 else
@@ -735,7 +731,8 @@ void DecLibRecon::processRowRecon(int row, int threadId) {
 }
 
 void DecLibRecon::decodeFrameWithThreadPool() {
-  bool bEnableRowEarly = m_currDecompPic->slices.size() == 1;
+//  bool bEnableRowEarly = m_currDecompPic->slices.size() == 1;
+  bool bEnableRowEarly = false;
   if (bEnableRowEarly == false) {
     int lines = m_currDecompPic->cs->pcv->heightInCtus;
     for (int y = 0; y < lines; y++) {

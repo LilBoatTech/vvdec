@@ -102,7 +102,7 @@ static inline void output_sei_message_header(SEI &sei, std::ostream *pDecodedMes
   if (pDecodedMessageOutputStream) {
     std::string seiMessageHdr(SEI::getSEIMessageString(sei.payloadType()));
     seiMessageHdr += " SEI message";
-    (*pDecodedMessageOutputStream) << std::setfill('-') << std::setw(seiMessageHdr.size()) << "-" << std::setfill(' ')
+    (*pDecodedMessageOutputStream) << std::setfill('-') << std::setw((int)seiMessageHdr.size()) << "-" << std::setfill(' ')
                                    << "\n"
                                    << seiMessageHdr << " (" << payloadSize << " bytes)"
                                    << "\n";

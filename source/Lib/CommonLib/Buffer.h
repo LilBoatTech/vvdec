@@ -488,7 +488,7 @@ template <>
 void AreaBuf<Pel>::linearTransform(const int scale, const int shift, const int offset, const ClpRng &clpRng);
 
 template <typename T>
-static void extendBorderPelImp(T *buf, int width, int height, int stride, unsigned margin) {
+static void extendBorderPelImp(T *buf, int width, int height, ptrdiff_t stride, unsigned margin) {
   T *p = buf;
   int h = height;
   int w = width;
@@ -532,7 +532,7 @@ void AreaBuf<T>::extendBorderPel(unsigned margin, int bytePerPixel) {
 }
 
 template <typename T>
-static void extendBorderPelImp(T *buf, int width, int height, int stride, int margin, bool left, bool right, bool top,
+static void extendBorderPelImp(T *buf, int width, int height, ptrdiff_t stride, int margin, bool left, bool right, bool top,
                                bool bottom) {
   CHECK((width + left * margin + right * margin) > stride, "Size of buffer too small to extend");
   // do left and right margins

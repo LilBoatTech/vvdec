@@ -577,7 +577,7 @@ static inline unsigned long _bit_scan_reverse(long a) {
 #endif
 #if ENABLE_SIMD_LOG2 && defined(TARGET_SIMD_X86)
 static inline int getLog2(int val) { return _bit_scan_reverse(val); }
-#elif __has_builtin(__builtin_clz) || defined(__has_builtin__builtin_clz)
+#elif __has_builtin(__GNUC__) || defined(__has_builtin__builtin_clz)
 static inline int getLog2(int val) { return __builtin_clz(val) ^ 31; }
 #else
 #  include <cmath>

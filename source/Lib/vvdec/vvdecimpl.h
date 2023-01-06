@@ -108,7 +108,7 @@ class VVDecImpl {
   int xHandleOutput(Picture* pcPic);
 
   static int copyComp(const unsigned char* pucSrc, unsigned char* pucDest, unsigned int uiWidth, unsigned int uiHeight,
-                      int iStrideSrc, int iStrideDest, int iBytesPerSample);
+                      ptrdiff_t iStrideSrc, ptrdiff_t iStrideDest, int iBytesPerSample);
 
  public:
   bool m_bInitialized = false;

@@ -2326,7 +2326,7 @@ void CABACReader::residual_coding_normal(TransformUnit& tu, ComponentID compID, 
 
   // parse subblocks
   int* sigPos = m_blkPos;
-  TCoeffSig* coeff = m_cffTmp;
+  TCoeffSig* coeff = tu.getResiBuf(compID).buf;
   ::memset(coeff, 0, width * height * sizeof(TCoeffSig));
   uint8_t* nbCoeff = m_nbCoeff;
   memset(nbCoeff, 0, sizeof(uint8_t) * (width + 2) * (height + 2));
@@ -2511,24 +2511,32 @@ void CABACReader::residual_coding_normal(TransformUnit& tu, ComponentID compID, 
     maxY <<= log2CGHeight;
   }
 
-  PelBuf pb = tu.getResiBuf(compID);
-  pb.memset(0);
-
   const bool depQuant = tu.cu->slice->getDepQuantEnabledFlag() && isNotMtsSKkip;
-  CoeffSigBuf dstCff = pb;
-
-  CHECKD(dstCff.stride != width, "dstCff.stride must be equal to tu width");
-
-  for (sigPos--, sigSubSetId--; sigSubSetId >= 0; sigSubSetId--) {
-    unsigned numNonZero = m_numSig[sigSubSetId];
-    unsigned signPattern = m_signVal[sigSubSetId];
-    unsigned sub1Pattern = m_sub1[sigSubSetId];
-
-    //===== set final coefficents =====
-    for (unsigned k = 0; k < numNonZero; k++, sigPos--, signPattern >>= 1, sub1Pattern >>= 1) {
-      const int blkPos = *sigPos;
-      int AbsCoeff = depQuant ? (coeff[blkPos] << 1) - ((static_cast<int>(sub1Pattern)) & 1) : coeff[blkPos];
-      dstCff.buf[blkPos] = (signPattern & 1u ? -AbsCoeff : AbsCoeff);
+  
+  if (depQuant) {
+    for (sigPos--, sigSubSetId--; sigSubSetId >= 0; sigSubSetId--) {
+      unsigned numNonZero = m_numSig[sigSubSetId];
+      unsigned signPattern = m_signVal[sigSubSetId];
+      unsigned sub1Pattern = m_sub1[sigSubSetId];
+  
+      //===== set final coefficents =====
+      for (unsigned k = 0; k < numNonZero; k++, sigPos--, signPattern >>= 1, sub1Pattern >>= 1) {
+        const int blkPos = *sigPos;
+        int AbsCoeff = (coeff[blkPos] << 1) - ((static_cast<int>(sub1Pattern)) & 1);
+        coeff[blkPos] = (signPattern & 1u ? -AbsCoeff : AbsCoeff);
+      }
+    }
+  } else {
+    for (sigPos--, sigSubSetId--; sigSubSetId >= 0; sigSubSetId--) {
+      unsigned numNonZero = m_numSig[sigSubSetId];
+      unsigned signPattern = m_signVal[sigSubSetId];
+      //unsigned sub1Pattern = m_sub1[sigSubSetId];
+      //===== set final coefficents =====
+      for (unsigned k = 0; k < numNonZero; k++, sigPos--, signPattern >>= 1) {
+        const int blkPos = *sigPos;
+        int AbsCoeff = coeff[blkPos];
+        coeff[blkPos] = (signPattern & 1u ? -AbsCoeff : AbsCoeff);
+      }
     }
   }
 

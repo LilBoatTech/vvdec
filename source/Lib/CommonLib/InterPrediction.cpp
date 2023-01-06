@@ -638,12 +638,14 @@ void InterPrediction::xSubPuBio(PredictionUnit& pu, PelUnitBuf& predBuf) {
       subPredBuf.bufs[0].buf =
           reinterpret_cast<Pel*>((reinterpret_cast<uint8_t*>(predBuf.bufs[0].buf)) + dx * m_bytePerPixel +
                                  dy * predBuf.bufs[0].stride * m_bytePerPixel);
-      subPredBuf.bufs[1].buf =
-          reinterpret_cast<Pel*>((reinterpret_cast<uint8_t*>(predBuf.bufs[1].buf)) + (dx >> csx) * m_bytePerPixel +
-                                 (dy >> csy) * predBuf.bufs[1].stride * m_bytePerPixel);
-      subPredBuf.bufs[2].buf =
-          reinterpret_cast<Pel*>((reinterpret_cast<uint8_t*>(predBuf.bufs[2].buf)) + (dx >> csx) * m_bytePerPixel +
-                                 (dy >> csy) * predBuf.bufs[2].stride * m_bytePerPixel);
+      if (isChromaEnabled(pu.chromaFormat)) {
+        subPredBuf.bufs[1].buf =
+            reinterpret_cast<Pel*>((reinterpret_cast<uint8_t*>(predBuf.bufs[1].buf)) + (dx >> csx) * m_bytePerPixel +
+                                   (dy >> csy) * predBuf.bufs[1].stride * m_bytePerPixel);
+        subPredBuf.bufs[2].buf =
+            reinterpret_cast<Pel*>((reinterpret_cast<uint8_t*>(predBuf.bufs[2].buf)) + (dx >> csx) * m_bytePerPixel +
+                                   (dy >> csy) * predBuf.bufs[2].stride * m_bytePerPixel);
+      }
 #else
       subPredBuf.bufs[0].buf = GET_OFFSET(predBuf.bufs[0].buf, predBuf.bufs[0].stride, dx, dy);
       if (isChromaEnabled(pu.chromaFormat)) {

@@ -733,7 +733,7 @@ bool VVDecImpl::isNalUnitSlice(NalType t) {
 bool VVDecImpl::isNalUnitSideData(NalType t) { return !isNalUnitSlice(t); }
 
 int VVDecImpl::copyComp(const unsigned char* pucSrc, unsigned char* pucDest, unsigned int uiWidth,
-                        unsigned int uiHeight, int iStrideSrc, int iStrideDest, int iBytesPerSample) {
+                        unsigned int uiHeight, ptrdiff_t iStrideSrc, ptrdiff_t iStrideDest, int iBytesPerSample) {
   if (NULL != pucSrc && NULL != pucDest) {
     if (iStrideDest == iStrideSrc) {
       ::memcpy(pucDest, pucSrc, uiHeight * iStrideDest);
@@ -863,7 +863,7 @@ int VVDecImpl::xAddPicture(Picture* pcPic) {
   cFrame.m_pcPicExtendedAttributes = new PicExtendedAttributes();
   cFrame.m_pcPicExtendedAttributes->m_uiPOC = pcPic->poc;
   cFrame.m_pcPicExtendedAttributes->m_iTemporalLayer = pcPic->getTLayer();
-  cFrame.m_pcPicExtendedAttributes->m_uiBits = pcPic->getNaluBits();
+  cFrame.m_pcPicExtendedAttributes->m_uiBits = (uint32_t)pcPic->getNaluBits();
 
   cFrame.m_pcPicExtendedAttributes->m_eNalType = (NalType)pcPic->eNalUnitType;
 
@@ -924,7 +924,7 @@ int VVDecImpl::xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_
   rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample = rcBitDepths.recon[CHANNEL_TYPE_LUMA] > 8 ? 2 : 1;
   rcFrame.m_cComponent[VVC_CT_Y].m_iStride =
       m_bCreateNewPicBuf ? uiWidth * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample
-                         : rcPicBuf.get(COMPONENT_Y).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
+                         : (uint32_t)rcPicBuf.get(COMPONENT_Y).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
   rcFrame.m_cComponent[VVC_CT_Y].m_uiByteOffset = 0;
   rcFrame.m_cComponent[VVC_CT_Y].m_uiBitDepth = rcBitDepths.recon[CHANNEL_TYPE_LUMA];
 
@@ -964,7 +964,7 @@ int VVDecImpl::xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_
       rcFrame.m_cComponent[VVC_CT_U].m_uiBytesPerSample = rcBitDepths.recon[CHANNEL_TYPE_CHROMA] > 8 ? 2 : 1;
       rcFrame.m_cComponent[VVC_CT_U].m_iStride =
           m_bCreateNewPicBuf ? uiCWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample
-                             : rcPicBuf.get(COMPONENT_Cb).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
+                             : (uint32_t)rcPicBuf.get(COMPONENT_Cb).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_U].m_uiByteOffset =
           rcFrame.m_cComponent[VVC_CT_Y].m_iStride * rcFrame.m_cComponent[VVC_CT_Y].m_uiHeight;
       rcFrame.m_cComponent[VVC_CT_U].m_uiBitDepth = rcBitDepths.recon[CHANNEL_TYPE_CHROMA];
@@ -978,7 +978,7 @@ int VVDecImpl::xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_
           uiCWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_V].m_iStride =
           m_bCreateNewPicBuf ? uiCWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample
-                             : rcPicBuf.get(COMPONENT_Cr).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
+                             : (uint32_t)rcPicBuf.get(COMPONENT_Cr).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_V].m_uiByteOffset = rcFrame.m_cComponent[VVC_CT_U].m_uiByteOffset + nCSize;
       rcFrame.m_cComponent[VVC_CT_V].m_uiBitDepth = rcBitDepths.recon[CHANNEL_TYPE_CHROMA];
       if (m_bCreateNewPicBuf) nBufSize = (rcFrame.m_cComponent[VVC_CT_Y].m_iStride * uiHeight) + (nCSize << 1);
@@ -996,7 +996,7 @@ int VVDecImpl::xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_
       rcFrame.m_cComponent[VVC_CT_U].m_uiBytesPerSample = rcBitDepths.recon[CHANNEL_TYPE_CHROMA] > 8 ? 2 : 1;
       rcFrame.m_cComponent[VVC_CT_U].m_iStride =
           m_bCreateNewPicBuf ? uiCWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample
-                             : rcPicBuf.get(COMPONENT_Cb).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
+                             : (uint32_t)rcPicBuf.get(COMPONENT_Cb).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_U].m_uiByteOffset =
           rcFrame.m_cComponent[VVC_CT_Y].m_iStride * rcFrame.m_cComponent[VVC_CT_Y].m_uiHeight;
       rcFrame.m_cComponent[VVC_CT_U].m_uiBitDepth = rcBitDepths.recon[CHANNEL_TYPE_CHROMA];
@@ -1010,7 +1010,7 @@ int VVDecImpl::xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_
           uiCWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_V].m_iStride =
           m_bCreateNewPicBuf ? uiCWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample
-                             : rcPicBuf.get(COMPONENT_Cr).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
+                             : (uint32_t)rcPicBuf.get(COMPONENT_Cr).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_V].m_uiByteOffset = rcFrame.m_cComponent[VVC_CT_U].m_uiByteOffset + nCSize;
       rcFrame.m_cComponent[VVC_CT_V].m_uiBitDepth = rcBitDepths.recon[CHANNEL_TYPE_CHROMA];
 
@@ -1026,7 +1026,7 @@ int VVDecImpl::xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_
       rcFrame.m_cComponent[VVC_CT_U].m_uiBytesPerSample = rcBitDepths.recon[CHANNEL_TYPE_CHROMA] > 8 ? 2 : 1;
       rcFrame.m_cComponent[VVC_CT_U].m_iStride =
           m_bCreateNewPicBuf ? uiWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample
-                             : rcPicBuf.get(COMPONENT_Cb).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
+                             : (uint32_t)rcPicBuf.get(COMPONENT_Cb).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_U].m_uiByteOffset =
           rcFrame.m_cComponent[VVC_CT_Y].m_iStride * rcFrame.m_cComponent[VVC_CT_Y].m_uiHeight;
       rcFrame.m_cComponent[VVC_CT_U].m_uiBitDepth = rcBitDepths.recon[CHANNEL_TYPE_CHROMA];
@@ -1036,7 +1036,7 @@ int VVDecImpl::xCreateFrame(Frame& rcFrame, const CPelUnitBuf& rcPicBuf, uint32_
       rcFrame.m_cComponent[VVC_CT_V].m_uiBytesPerSample = rcBitDepths.recon[CHANNEL_TYPE_CHROMA] > 8 ? 2 : 1;
       rcFrame.m_cComponent[VVC_CT_V].m_iStride =
           m_bCreateNewPicBuf ? uiWidth * rcFrame.m_cComponent[CHANNEL_TYPE_CHROMA].m_uiBytesPerSample
-                             : rcPicBuf.get(COMPONENT_Cr).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
+                             : (uint32_t)rcPicBuf.get(COMPONENT_Cr).stride * rcFrame.m_cComponent[VVC_CT_Y].m_uiBytesPerSample;
       rcFrame.m_cComponent[VVC_CT_V].m_uiByteOffset = rcFrame.m_cComponent[VVC_CT_U].m_uiByteOffset << 1;
       rcFrame.m_cComponent[VVC_CT_V].m_uiBitDepth = rcBitDepths.recon[CHANNEL_TYPE_CHROMA];
 

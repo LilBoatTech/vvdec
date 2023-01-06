@@ -1055,7 +1055,7 @@ void GetLumaRecPixel420SIMD(const int width, const int height, const Pel* pRecSr
 }
 
 template <X86_VEXT vext, int W>
-void IntraAnglePDPC_SIMD(Pel* pDsty, const int dstStride, Pel* refSide, const int width, const int height, int scale,
+void IntraAnglePDPC_SIMD(Pel* pDsty, const ptrdiff_t dstStride, Pel* refSide, const int width, const int height, int scale,
                          int invAngle) {
   if (W >= 16) {
 #    ifdef USE_AVX2

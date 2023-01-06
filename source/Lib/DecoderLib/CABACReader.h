@@ -177,8 +177,6 @@ class CABACReader {
   }
 
  private:
-  TCoeffSig m_cffTmp[MAX_TU_SIZE_FOR_PROFILE * MAX_TU_SIZE_FOR_PROFILE];
-
   unsigned m_signVal[256];
   int m_numSig[256];
   unsigned m_sub1[256];

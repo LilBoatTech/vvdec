@@ -164,8 +164,8 @@ Distortion RdCost::xGetSAD_4xN_SIMD(const DistParam& rcDtParam) {
   int iRows = rcDtParam.org.height;
   int iSubShift = rcDtParam.subShift;
   int iSubStep = (1 << iSubShift);
-  const int iStrideSrc1 = rcDtParam.org.stride * iSubStep;
-  const int iStrideSrc2 = rcDtParam.cur.stride * iSubStep;
+  const ptrdiff_t iStrideSrc1 = rcDtParam.org.stride * iSubStep;
+  const ptrdiff_t iStrideSrc2 = rcDtParam.cur.stride * iSubStep;
 
   uint32_t uiSum = 0;
 
@@ -215,8 +215,8 @@ Distortion RdCost::xGetSAD_8xN_SIMD(const DistParam& rcDtParam) {
   int iSubShift = rcDtParam.subShift;
 
   if (iRows == 8 && iSubShift == 0) {
-    const int iStrideSrc1 = rcDtParam.org.stride;
-    const int iStrideSrc2 = rcDtParam.cur.stride;
+    const ptrdiff_t iStrideSrc1 = rcDtParam.org.stride;
+    const ptrdiff_t iStrideSrc2 = rcDtParam.cur.stride;
 
     __m128i vsrc0 = _mm_loadu_si128((const __m128i*)(pSrc1));
     pSrc1 += iStrideSrc1;
@@ -291,8 +291,8 @@ Distortion RdCost::xGetSAD_8xN_SIMD(const DistParam& rcDtParam) {
     uiSum <<= iSubShift;
     return uiSum >> DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth);
   } else if (iRows == 8 && iSubShift == 1) {
-    const int iStrideSrc1 = rcDtParam.org.stride << 1;
-    const int iStrideSrc2 = rcDtParam.cur.stride << 1;
+    const ptrdiff_t iStrideSrc1 = rcDtParam.org.stride << 1;
+    const ptrdiff_t iStrideSrc2 = rcDtParam.cur.stride << 1;
 
     __m128i vsrc0 = _mm_loadu_si128((const __m128i*)(pSrc1));
     pSrc1 += iStrideSrc1;
@@ -334,8 +334,8 @@ Distortion RdCost::xGetSAD_8xN_SIMD(const DistParam& rcDtParam) {
     return uiSum >> DISTORTION_PRECISION_ADJUSTMENT(rcDtParam.bitDepth);
   } else {
     int iSubStep = (1 << iSubShift);
-    const int iStrideSrc1 = rcDtParam.org.stride * iSubStep;
-    const int iStrideSrc2 = rcDtParam.cur.stride * iSubStep;
+    const ptrdiff_t iStrideSrc1 = rcDtParam.org.stride * iSubStep;
+    const ptrdiff_t iStrideSrc2 = rcDtParam.cur.stride * iSubStep;
 
     uint32_t uiSum = 0;
 
@@ -371,8 +371,8 @@ Distortion RdCost::xGetSAD_16NxN_SIMD(const DistParam& rcDtParam) {
   int iRows = rcDtParam.org.height;
   int iSubShift = rcDtParam.subShift;
   int iSubStep = (1 << iSubShift);
-  const int iStrideSrc1 = rcDtParam.org.stride * iSubStep;
-  const int iStrideSrc2 = rcDtParam.cur.stride * iSubStep;
+  const ptrdiff_t iStrideSrc1 = rcDtParam.org.stride * iSubStep;
+  const ptrdiff_t iStrideSrc2 = rcDtParam.cur.stride * iSubStep;
 
   uint32_t uiSum = 0;
 

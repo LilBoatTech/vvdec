@@ -625,7 +625,7 @@ void IntraPrediction::xPredIntraDc(const CPelBuf &pSrc, PelBuf &pDst, const int 
 
   if (m_bytePerPixel == 1) {
     const Pel8bit *buf = reinterpret_cast<const Pel8bit *>(pSrc.buf);
-    int srcStride = pSrc.stride;
+    ptrdiff_t srcStride = pSrc.stride;
 
     if (width >= height) {
       for (idx = 0; idx < width; idx++) {
@@ -640,7 +640,7 @@ void IntraPrediction::xPredIntraDc(const CPelBuf &pSrc, PelBuf &pDst, const int 
 
     Pel8bit dcVal = (sum + divOffset) >> divShift;
     Pel8bit *dstPtr = reinterpret_cast<Pel8bit *>(pDst.buf);
-    int dstStride = pDst.stride;
+    ptrdiff_t dstStride = pDst.stride;
     if (width == dstStride) {
       std::fill_n(dstPtr, width * height, dcVal);
     } else {
@@ -662,7 +662,7 @@ void IntraPrediction::xPredIntraDc(const CPelBuf &pSrc, PelBuf &pDst, const int 
 
     Pel dcVal = (sum + divOffset) >> divShift;
     Pel *dstPtr = pDst.buf;
-    int dstStride = pDst.stride;
+    ptrdiff_t dstStride = pDst.stride;
     if (width == dstStride) {
       std::fill_n(dstPtr, width * height, dcVal);
     } else {
@@ -739,7 +739,7 @@ void IntraPrediction::xPredIntraAngImp(const CPelBuf &pSrc, PelBuf &pDst, const 
   T refLeft[2 * MAX_CU_SIZE + 3 + 33 * MAX_REF_LINE_IDX];
 
   const T *srcPtr = reinterpret_cast<const T *>(pSrc.buf);
-  int srcStride = pSrc.stride;
+  ptrdiff_t srcStride = pSrc.stride;
 
   // Initialize the Main and Left reference array.
   if (intraPredAngle < 0) {

@@ -110,10 +110,6 @@ class InterpolationFilter {
                  int width, int height, bool isFirst, bool isLast, TFilterCoeff const* coeff, bool biMCForDMVR);
 
   template <bool isLast, int w, typename TSrc, typename TDst>
-  static void filterXxY_N2(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
-                           const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
-                           TFilterCoeff const* coeffV);
-  template <bool isLast, int w, typename TSrc, typename TDst>
   static void filterXxY_N4(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                            const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                            TFilterCoeff const* coeffV);
@@ -151,13 +147,13 @@ class InterpolationFilter {
                                bool biMCForDMVR);
   void (*m_filterCopy[2][2])(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                              const ptrdiff_t dstStride, int width, int height, bool biMCForDMVR);
-  void (*m_filter4x4[3][2])(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
+  void (*m_filter4x4[2][2])(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                             const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                             TFilterCoeff const* coeffV);
-  void (*m_filter8x8[3][2])(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
+  void (*m_filter8x8[2][2])(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                             const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                             TFilterCoeff const* coeffV);
-  void (*m_filter16x16[3][2])(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
+  void (*m_filter16x16[2][2])(const ClpRng& clpRng, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                               const ptrdiff_t dstStride, int width, int height, TFilterCoeff const* coeffH,
                               TFilterCoeff const* coeffV);
   void (*m_weightedGeoBlk)(const PredictionUnit& pu, const uint32_t width, const uint32_t height,
@@ -175,13 +171,13 @@ class InterpolationFilter {
                    const ClpRng& clpRng);
   void filter4x4(const ComponentID compID, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                  const ptrdiff_t dstStride, int width, int height, int fracX, int fracY, bool isLast,
-                 const ChromaFormat fmt, const ClpRng& clpRng, int nFilterIdx = 0);
+                 const ChromaFormat fmt, const ClpRng& clpRng);
   void filter8x8(const ComponentID compID, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                  const ptrdiff_t dstStride, int width, int height, int fracX, int fracY, bool isLast,
-                 const ChromaFormat fmt, const ClpRng& clpRng, bool useAltHpelIf = false, int nFilterIdx = 0);
+                 const ChromaFormat fmt, const ClpRng& clpRng, bool useAltHpelIf = false);
   void filter16x16(const ComponentID compID, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                    const ptrdiff_t dstStride, int width, int height, int fracX, int fracY, bool isLast,
-                   const ChromaFormat fmt, const ClpRng& clpRng, bool useAltHpelIf = false, int nFilterIdx = 0);
+                   const ChromaFormat fmt, const ClpRng& clpRng, bool useAltHpelIf = false);
   void filterHor(const ComponentID compID, const Pel* src, const ptrdiff_t srcStride, Pel* dst,
                  const ptrdiff_t dstStride, int width, int height, int frac, bool isLast, const ChromaFormat fmt,
                  const ClpRng& clpRng, int nFilterIdx = 0, bool biMCForDMVR = false, bool useAltHpelIf = false);

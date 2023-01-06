@@ -148,7 +148,7 @@ static int readBitstreamFromFile(std::ifstream *f, vvdec::AccessUnit *pcAccessUn
   unsigned char *pBuf = pcAccessUnit->m_pucBuffer;
   pcAccessUnit->m_iUsedSize = 0;
 
-  int curfilpos = f->tellg();
+  auto curfilpos = f->tellg();
   if (curfilpos < 0) {
     if (bLoop) {
       f->clear();
